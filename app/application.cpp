@@ -2,13 +2,24 @@
 #include <SmingCore/SmingCore.h>
 #include <Libraries/OneWire/OneWire.h>
 
+
 /* определение специальных значений */
-#define On  true
-#define Off false
+#define On        true
+#define Off       false
 
 /* определение ножек дл€ подключени€ периферии */
-#define LCP_PIN 2 	// нагрузка    = GPIO2
-#define TMP_PIN 4	// 1-Wire шина = GPIO4
+#define LCP_PIN   2		// нагрузка    = GPIO2
+#define TMP_PIN   4		// 1-Wire шина = GPIO4
+
+/* максимальна€ температура */
+#define MAX_TEMP  30.0
+
+/* данные дл€ подключени€ к Wi-Fi сети */
+#define WIFI_SSID "Smart Rock"
+#define WIFI_PWD  "s1PKo1Dj"
+
+/* настройки порта дл€ сервера */
+#define SRV_PORT  9000
 
 /* создание объектов */
 OneWire oneWire(TMP_PIN);
@@ -18,6 +29,7 @@ Timer procTimer;
 byte addr[8];		// адрес датчика температуры
 byte type_s;		// тип датчика температуры
 byte error = false;	// флаг ошибки (датчик)
+float temp;
 
 void load(bool state, bool msg)
 {
@@ -96,6 +108,7 @@ void searchSensor()
 }
 float getTemp()
 {
+	/* метод получени€ температуры с дачтика */
 	float temp = 0;
 	byte data[12];
 
@@ -144,42 +157,131 @@ float getTemp()
 }
 void printTemp(float temperature)
 {
-	Serial.print("Temperature is ");
-	Serial.print(temperature);
-	Serial.print("C.\n");
+	/* метод вывода темпаратуры в консоль */
+	String tmp = "Temperature is ";
+	tmp.concat(temperature);
+	tmp.concat("C.\n");
+	Serial.print(tmp);
 }
 void execute()
 {
-	float temp = getTemp();
+	/* основной метод, выполн€ющийс€ по таймеру */
+	temp = getTemp();
 
-	printTemp(temp);
-
-	if(temp < 30.0)
-		load(On, true);
+	if(temp < MAX_TEMP)
+		load(On, false);
 	else
-		load(Off, true);
+		load(Off, false);
+}
+
+void createAP()
+{
+	/* метод настройки режима wi-fi модул€ */
+	WifiStation.enable(false);
+	WifiAccessPoint.enable(true);
+	WifiAccessPoint.config(WIFI_SSID, WIFI_PWD, AUTH_WPA2_PSK);
+	WifiAccessPoint.setIP(IPAddress(10, 0, 0, 1));
+	String tmp = "AP mode enabled. SSID: \"";
+		   tmp.concat(WIFI_SSID);
+		   tmp.concat("\".\n");
+	Serial.print(tmp);
+}
+
+void clientConnected (TcpClient* client)
+{
+	String tmp = "Client connected: ";
+		   tmp.concat(client->getRemoteIp().toString().c_str());
+		   tmp.concat(".\n");
+	Serial.print(tmp);
+}
+bool clientReceive (TcpClient& client, char *data, int size)
+{
+	String r_data = data;
+	if(r_data.indexOf("\n") != -1)
+		r_data.replace("\n", "");
+	else if(r_data.indexOf("\r") != -1)
+		r_data.replace("\r", "");
+
+	String tmp = "Data received (";
+		   tmp.concat(size);
+		   tmp.concat(" bytes from ");
+		   tmp.concat(client.getRemoteIp().toString().c_str());
+		   tmp.concat("): \"");
+		   tmp.concat(r_data);
+		   tmp.concat("\".\n");
+	Serial.print(tmp);
+
+	if (r_data.compareTo("request") == 0)
+	{
+		Serial.print("Temperature request. ");
+		printTemp(temp);
+
+		char tmpChar[7];
+		dtostrf(temp, 1, 2, tmpChar);
+		tmp = "temp=";
+		tmp.concat(tmpChar);
+		tmp.concat("\n");
+		client.sendString(tmp, false);
+
+		if(digitalRead(LCP_PIN))
+			tmp = "load=on\n";
+		else
+			tmp = "load=off\n";
+		client.sendString(tmp, false);
+	}
+	else
+	{
+		client.sendString("Unknown command!\n", false);
+	}
+
+	return true;
+}
+void clientDisconnected(TcpClient& client, bool succesfull)
+{
+	String tmp = "Client disconnected: ";
+		   tmp.concat(client.getRemoteIp().toString().c_str());
+		   tmp.concat(".\n");
+	Serial.print(tmp);
+}
+
+TcpServer tcpServer(clientConnected, clientReceive, clientDisconnected);
+
+void startTCPServer()
+{
+	tcpServer.listen(SRV_PORT);
+	String tmp = "TCP server started. Address is ";
+	       tmp.concat("10.0.0.1:");
+	       tmp.concat(SRV_PORT);
+	       tmp.concat(".\n");
+	Serial.print(tmp);
 }
 
 void init()
 {
-	Serial.begin(SERIAL_BAUD_RATE);
-	// инициализаци€ UART, скорость 115200 бод (по-молчанию)
-
-	// Serial.systemDebugOutput(true);
-	// разрешение выдачи отладочных данных в UART
-
-	oneWire.begin();
-	// инициализаци€ шины 1-Wire
-
 	pinMode(LCP_PIN, OUTPUT);
 	// инициализаци€ пина на выход
 
 	load(Off, false);
 	// отключение нагрузки
 
+	Serial.systemDebugOutput(false);
+	// запрет выдачи отладочных данных в UART
+
+	Serial.begin(SERIAL_BAUD_RATE);
+	// инициализаци€ UART, скорость 115200 бод (по-молчанию)
+
+	createAP();
+	// создание и настройка точки доступа
+
+	startTCPServer();
+	// запуск TCP-сервера
+
+	oneWire.begin();
+	// инициализаци€ шины 1-Wire
+
 	searchSensor();
 	// запуск процедуры поиска датчика
 
-	procTimer.initializeMs(3000, execute).start();
+	procTimer.initializeMs(1500, execute).start();
 	// запуск таймера (вывод температуры)
 }
