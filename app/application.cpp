@@ -11,9 +11,6 @@
 #define LCP_PIN   2		// нагрузка    = GPIO2
 #define TMP_PIN   4		// 1-Wire шина = GPIO4
 
-/* максимальна€ температура */
-#define MAX_TEMP  30.0
-
 /* данные дл€ подключени€ к Wi-Fi сети */
 #define WIFI_SSID "Smart Rock"
 #define WIFI_PWD  "s1PKo1Dj"
@@ -29,25 +26,17 @@ Timer procTimer;
 byte addr[8];		// адрес датчика температуры
 byte type_s;		// тип датчика температуры
 byte error = false;	// флаг ошибки (датчик)
-float temp;
+byte max_temp = 30;	// максимальна€ температура
+float temp = 0.0;	// переменна€ дл€ хранени€ температуры
 
-void load(bool state, bool msg)
+void load(bool state)
 {
 	/* метод управлени€ нагрузкой */
 	digitalWrite(LCP_PIN, state);
-
-	if(msg)
-	{
-		if(state)
-			Serial.print("Load is ON!\n");
-		else
-			Serial.print("Load is OFF!\n");
-	}
 }
 void searchSensor()
 {
 	/* метод поиска датчика на шине 1-Wire */
-
 	/* метка дл€ возврата в случае, если ROM датчика прин€т неверно */
 	rescan:
 
@@ -63,7 +52,7 @@ void searchSensor()
 	}
 
 	/* проверка правильности приема адреса датчика */
-	if (OneWire::crc8(addr, 7) != addr[7])
+	if(OneWire::crc8(addr, 7) != addr[7])
 	{
 		Serial.print("Sensor's ROM CRC is not valid!\n");
 		goto rescan;
@@ -133,19 +122,19 @@ float getTemp()
 
 		/* конвертаци€ температуры */
 		int16_t raw = (data[1] << 8) | data[0];
-		if (type_s)
+		if(type_s)
 		{
 			// разрешение в 9 бит по-умолчанию
 			raw = raw << 3;
-			if (data[7] == 0x10)
+			if(data[7] == 0x10)
 				raw = (raw & 0xFFF0) + 12 - data[6];
 		}
 		else
 		{
 			byte cfg = (data[4] & 0x60);
-			if (cfg == 0x00) raw = raw & ~7;  		// разрешение в 9 бит,  93.75 ms
-			else if (cfg == 0x20) raw = raw & ~3; 	// разрешение в 10 бит, 187.5 ms
-			else if (cfg == 0x40) raw = raw & ~1; 	// разрешение в 11 бит, 375 ms
+			if(cfg == 0x00) raw = raw & ~7;  		// разрешение в 9 бит,  93.75 ms
+			else if(cfg == 0x20) raw = raw & ~3; 	// разрешение в 10 бит, 187.5 ms
+			else if(cfg == 0x40) raw = raw & ~1; 	// разрешение в 11 бит, 375 ms
 			// по-умолчанию используетс€ разрешение в 12 бит, 750 ms
 		}
 
@@ -159,8 +148,8 @@ void printTemp(float temperature)
 {
 	/* метод вывода темпаратуры в консоль */
 	String tmp = "Temperature is ";
-	tmp.concat(temperature);
-	tmp.concat("C.\n");
+		   tmp.concat(temperature);
+		   tmp.concat("C.");
 	Serial.print(tmp);
 }
 void execute()
@@ -168,10 +157,10 @@ void execute()
 	/* основной метод, выполн€ющийс€ по таймеру */
 	temp = getTemp();
 
-	if(temp < MAX_TEMP)
-		load(On, false);
+	if(temp < max_temp)
+		load(On);
 	else
-		load(Off, false);
+		load(Off);
 }
 
 void createAP()
@@ -189,6 +178,7 @@ void createAP()
 
 void clientConnected (TcpClient* client)
 {
+	/* вывод информации о подключившемс€ клиенте */
 	String tmp = "Client connected: ";
 		   tmp.concat(client->getRemoteIp().toString().c_str());
 		   tmp.concat(".\n");
@@ -196,7 +186,9 @@ void clientConnected (TcpClient* client)
 }
 bool clientReceive (TcpClient& client, char *data, int size)
 {
+	/* метод обработки полученных команд */
 	String r_data = data;
+	r_data.toLowerCase();
 	if(r_data.indexOf("\n") != -1)
 		r_data.replace("\n", "");
 	else if(r_data.indexOf("\r") != -1)
@@ -211,10 +203,15 @@ bool clientReceive (TcpClient& client, char *data, int size)
 		   tmp.concat("\".\n");
 	Serial.print(tmp);
 
-	if (r_data.compareTo("request") == 0)
+	if(r_data.compareTo("status") == 0)
 	{
-		Serial.print("Temperature request. ");
+		bool loadStatus = digitalRead(LCP_PIN);
+		Serial.print("Status request. ");
 		printTemp(temp);
+		if(loadStatus)
+			Serial.print(" Load is ON!\n");
+		else
+			Serial.print(" Load is OFF!\n");
 
 		char tmpChar[7];
 		dtostrf(temp, 1, 2, tmpChar);
@@ -223,11 +220,23 @@ bool clientReceive (TcpClient& client, char *data, int size)
 		tmp.concat("\n");
 		client.sendString(tmp, false);
 
-		if(digitalRead(LCP_PIN))
+		if(loadStatus)
 			tmp = "load=on\n";
 		else
 			tmp = "load=off\n";
 		client.sendString(tmp, false);
+	}
+	else if(r_data.indexOf("max_temp=") != -1)
+	{
+		tmp = r_data + "\n";
+		r_data.replace("max_temp=", "");
+		max_temp = (byte) r_data.toInt();
+		client.sendString(tmp, false);
+
+		tmp = "Maximum temp is set to ";
+		tmp.concat(max_temp);
+		tmp.concat("C.\n");
+		Serial.print(tmp);
 	}
 	else
 	{
@@ -238,6 +247,7 @@ bool clientReceive (TcpClient& client, char *data, int size)
 }
 void clientDisconnected(TcpClient& client, bool succesfull)
 {
+	/* вывод информации об отключившемс€ клиенте */
 	String tmp = "Client disconnected: ";
 		   tmp.concat(client.getRemoteIp().toString().c_str());
 		   tmp.concat(".\n");
@@ -261,7 +271,7 @@ void init()
 	pinMode(LCP_PIN, OUTPUT);
 	// инициализаци€ пина на выход
 
-	load(Off, false);
+	load(Off);
 	// отключение нагрузки
 
 	Serial.systemDebugOutput(false);
