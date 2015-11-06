@@ -1,0 +1,70 @@
+22:34:30.741> 
+22:34:30.741> timeout updating: 70 -> 65535
+22:34:30.741> 
+22:34:30.741> 
+22:34:30.741> 
+22:34:30.741> 
+22:34:30.741> 
+22:34:30.741> AP mode enabled. SSID: "Smart Rock".
+22:34:30.741> TCP server started. Address is 10.0.0.1:9000.
+22:34:30.741> Sensor is DS18B20.
+22:34:30.741> Sensor's ROM is: 28 FB C7 94 4 0 0 96
+22:34:30.741> 
+22:34:30.741> mode : softAP(1a:fe:34:f4:79:cb)
+22:34:30.741> 
+22:34:30.741> add if1
+22:34:30.741> 
+22:34:31.067> dhcp server start:(ip:10.0.0.1,mask:255.255.255.0,gw:10.0.0.1)
+22:34:31.067> 
+22:34:31.067> bcn 100
+22:34:31.067> 
+22:36:39.598> add 1
+22:36:39.598> 
+22:36:39.598> aid 1
+22:36:39.598> 
+22:36:39.598> station: a0:f4:50:15:6e:aa join, AID = 1
+22:36:39.598> 
+22:37:24.713> Client connected: 10.0.0.2.
+22:37:31.828> Data received (7 bytes from 10.0.0.2): "status".
+22:37:31.828> Status request. Temperature is 27.44C. Load is ON!
+22:37:46.802> Data received (12 bytes from 10.0.0.2): "max_temp=25".
+22:37:46.802> Maximum temp is set to 25C.
+22:38:00.280> Data received (7 bytes from 10.0.0.2): "status".
+22:38:00.280> Status request. Temperature is 27.50C. Load is OFF!
+22:38:08.269> Data received (12 bytes from 10.0.0.2): "max_temp=34".
+22:38:08.269> Maximum temp is set to 34C.
+22:38:15.319> Data received (12 bytes from 10.0.0.2): "max_temp=33".
+22:38:15.319> Maximum temp is set to 33C.
+22:38:19.814> Data received (12 bytes from 10.0.0.2): "max_temp=27".
+22:38:19.814> Maximum temp is set to 27C.
+22:38:22.809> Client disconnected: 0.0.0.0.
+22:38:47.206> station: a0:f4:50:15:6e:aa join, AID = 1
+22:38:47.206> 
+22:39:00.372> Client connected: 10.0.0.2.
+22:39:04.802> Data received (12 bytes from 10.0.0.2): "max_temp=25".
+22:39:04.802> Maximum temp is set to 25C.
+22:39:07.798> Client disconnected: 0.0.0.0.
+22:39:33.382> station: a0:f4:50:15:6e:aa join, AID = 1
+22:39:33.382> 
+22:39:41.120> Client connected: 10.0.0.2.
+22:39:43.803> Data received (12 bytes from 10.0.0.2): "max_temp=28".
+22:39:43.803> Maximum temp is set to 28C.
+22:39:46.800> Data received (12 bytes from 10.0.0.2): "max_temp=33".
+22:39:46.800> Maximum temp is set to 33C.
+22:39:49.793> Data received (12 bytes from 10.0.0.2): "max_temp=33".
+22:39:49.793> Maximum temp is set to 33C.
+22:39:57.283> Data received (12 bytes from 10.0.0.2): "max_temp=30".
+22:39:57.283> Maximum temp is set to 30C.
+22:39:59.093> Data received (7 bytes from 10.0.0.2): "status".
+22:39:59.093> Status request. Temperature is 27.50C. Load is ON!
+22:40:04.832> Data received (7 bytes from 10.0.0.2): "status".
+22:40:04.832> Status request. Temperature is 28.62C. Load is ON!
+22:40:09.325> Data received (7 bytes from 10.0.0.2): "status".
+22:40:09.325> Status request. Temperature is 29.50C. Load is ON!
+22:40:15.377> Data received (7 bytes from 10.0.0.2): "status".
+22:40:15.377> Status request. Temperature is 30.19C. Load is OFF!
+22:40:27.296> Client disconnected: 10.0.0.2.
+22:41:25.827> station: a0:f4:50:15:6e:aa leave, AID = 1
+22:41:25.827> 
+22:41:25.827> rm 1
+22:41:25.827> 
