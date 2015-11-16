@@ -8,8 +8,8 @@
 #define Off       false
 
 /* определение ножек для подключения периферии */
-#define LCP_PIN   2		// нагрузка    = GPIO2
-#define TMP_PIN   4		// 1-Wire шина = GPIO4
+#define LCP_PIN   0		// нагрузка    = GPIO0
+#define TMP_PIN   2		// 1-Wire шина = GPIO2
 
 /* данные для подключения к Wi-Fi сети */
 #define WIFI_SSID "Smart Rock"
