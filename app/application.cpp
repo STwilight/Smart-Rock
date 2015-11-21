@@ -23,11 +23,12 @@ OneWire oneWire(TMP_PIN);
 Timer procTimer;
 
 /* объ€вление глобальных переменных */
-byte addr[8];		// адрес датчика температуры
-byte type_s;		// тип датчика температуры
-byte error = false;	// флаг ошибки (датчик)
-byte max_temp = 30;	// максимальна€ температура
-float temp = 0.0;	// переменна€ дл€ хранени€ температуры
+byte addr[8];			// адрес датчика температуры
+byte type_s;			// тип датчика температуры
+byte error = false;		// флаг ошибки (датчик)
+byte max_temp = 30;		// максимальна€ температура
+byte set_max_temp = 0;	// полученна€ максимальна€ температура
+float temp = 0.0;		// переменна€ дл€ хранени€ температуры
 
 void load(bool state)
 {
@@ -48,7 +49,9 @@ void searchSensor()
 	{
 		Serial.print("No sensors found.\n");
 		oneWire.reset_search();
-		delay(250);
+		delay(500);
+		/* сброс software watchdog timer */
+		WDT.alive();
 	}
 
 	/* проверка правильности приема адреса датчика */
@@ -157,6 +160,9 @@ void execute()
 	/* основной метод, выполн€ющийс€ по таймеру */
 	temp = getTemp();
 
+	if(max_temp != set_max_temp)
+		max_temp = set_max_temp;
+
 	if(temp < max_temp)
 		load(On);
 	else
@@ -188,6 +194,10 @@ bool clientReceive (TcpClient& client, char *data, int size)
 {
 	/* метод обработки полученных команд */
 	String r_data = data;
+
+	/* отключение software watchdog timer перед долгой операцией */
+	system_soft_wdt_stop();
+
 	r_data.toLowerCase();
 	if(r_data.indexOf("\n") != -1)
 		r_data.replace("\n", "");
@@ -230,11 +240,11 @@ bool clientReceive (TcpClient& client, char *data, int size)
 	{
 		tmp = r_data + "\n";
 		r_data.replace("max_temp=", "");
-		max_temp = (byte) r_data.toInt();
+		set_max_temp = (byte) r_data.toInt();
 		client.sendString(tmp, false);
 
 		tmp = "Maximum temp is set to ";
-		tmp.concat(max_temp);
+		tmp.concat(set_max_temp);
 		tmp.concat("C.\n");
 		Serial.print(tmp);
 	}
@@ -242,6 +252,9 @@ bool clientReceive (TcpClient& client, char *data, int size)
 	{
 		client.sendString("Unknown command!\n", false);
 	}
+
+	/* сброс software watchdog timer */
+	system_soft_wdt_restart();
 
 	return true;
 }
@@ -292,6 +305,6 @@ void init()
 	searchSensor();
 	// запуск процедуры поиска датчика
 
-	procTimer.initializeMs(1500, execute).start();
-	// запуск таймера (вывод температуры)
+	procTimer.initializeMs(2000, execute).start();
+	// запуск таймера (основной цикл)
 }
