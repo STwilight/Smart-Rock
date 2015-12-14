@@ -13,7 +13,7 @@
 
 /* данные для подключения к Wi-Fi сети */
 #define WIFI_SSID "Smart Rock"
-#define WIFI_PWD  "s1PKo1Dj"
+#define WIFI_PWD  "12345678"
 
 /* настройки порта для сервера */
 #define SRV_PORT  9000
