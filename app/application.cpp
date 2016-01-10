@@ -4,19 +4,19 @@
 
 
 /* определение специальных значений */
-#define On        true
-#define Off       false
+#define On			 true
+#define Off			 false
 
 /* определение ножек для подключения периферии */
-#define LCP_PIN   0		// нагрузка    = GPIO0
-#define TMP_PIN   2		// 1-Wire шина = GPIO2
+#define LCP_PIN		 0		// нагрузка    = GPIO0
+#define TMP_PIN		 2		// 1-Wire шина = GPIO2
 
 /* данные для подключения к Wi-Fi сети */
-#define WIFI_SSID "Smart Rock"
-#define WIFI_PWD  "12345678"
+#define WIFI_SSID	 "Smart Rock"
+#define WIFI_PWD	 "12345678"
 
-/* настройки порта для сервера */
-#define SRV_PORT  9000
+/* настройки порта для TCP сервера */
+#define TCP_SRV_PORT 9000
 
 /* создание объектов */
 OneWire oneWire(TMP_PIN);
@@ -29,6 +29,7 @@ byte error = false;		// флаг ошибки (датчик)
 byte max_temp = 30;		// максимальная температура
 byte set_max_temp = 0;	// полученная максимальная температура
 float temp = 0.0;		// переменная для хранения температуры
+bool UART = false;		// разрешение вывода информации в консоль
 
 void load(bool state)
 {
@@ -47,7 +48,7 @@ void searchSensor()
 	/* поиск устройств на шине 1-Wire */
 	while(!oneWire.search(addr))
 	{
-		Serial.print("No sensors found.\n");
+		Serial.print("No sensors found!\n");
 		oneWire.reset_search();
 		delay(500);
 		/* сброс software watchdog timer */
@@ -57,44 +58,45 @@ void searchSensor()
 	/* проверка правильности приема адреса датчика */
 	if(OneWire::crc8(addr, 7) != addr[7])
 	{
-		Serial.print("Sensor's ROM CRC is not valid!\n");
+		if(UART)
+			Serial.print("Sensor's ROM CRC is not valid!\n");
 		goto rescan;
 	}
 	else
 	{
 		/* определение типа датчика и его вывод */
-		switch (addr[0])
-		{
-			case 0x10:
-				Serial.print("Sensor is DS18S20 or DS1820.\n");
-				type_s = 1;
-				break;
-			case 0x28:
-				Serial.print("Sensor is DS18B20.\n");
-				type_s = 0;
-				break;
-			case 0x22:
-				Serial.print("Sensor is DS1822.\n");
-				type_s = 0;
-				break;
-			default:
-				Serial.print("Device is not a DS18x20 family device.\n");
-				error = true;
-				break;
-		}
-
-		if(!error)
-		{
-			/* вывод уникального адреса датчика */
-			Serial.print("Sensor's ROM is:");
-			for(byte i = 0; i < 8; i++)
+		if(UART) {
+			switch (addr[0])
 			{
-				Serial.write(' ');
-				Serial.print(addr[i], HEX);
+				case 0x10:
+					Serial.print("Sensor is DS18S20 or DS1820.\n");
+					type_s = 1;
+					break;
+				case 0x28:
+					Serial.print("Sensor is DS18B20.\n");
+					type_s = 0;
+					break;
+				case 0x22:
+					Serial.print("Sensor is DS1822.\n");
+					type_s = 0;
+					break;
+				default:
+					Serial.print("Device is not a DS18x20 family device.\n");
+					error = true;
+					break;
 			}
-
-			/* вывод отступа */
-			Serial.println();
+			if(!error)
+			{
+				/* вывод уникального адреса датчика */
+				Serial.print("Sensor's ROM is:");
+				for(byte i = 0; i < 8; i++)
+				{
+					Serial.write(' ');
+					Serial.print(addr[i], HEX);
+				}
+				/* вывод отступа */
+				Serial.println();
+			}
 		}
 	}
 }
@@ -176,24 +178,29 @@ void createAP()
 	WifiAccessPoint.enable(true);
 	WifiAccessPoint.config(WIFI_SSID, WIFI_PWD, AUTH_WPA2_PSK);
 	WifiAccessPoint.setIP(IPAddress(10, 0, 0, 1));
-	String tmp = "AP mode enabled. SSID: \"";
-		   tmp.concat(WIFI_SSID);
-		   tmp.concat("\".\n");
-	Serial.print(tmp);
+	if(UART) {
+		String tmp = "AP mode enabled. SSID: \"";
+			   tmp.concat(WIFI_SSID);
+			   tmp.concat("\".\n");
+		Serial.print(tmp);
+	}
 }
 
 void clientConnected (TcpClient* client)
 {
 	/* вывод информации о подключившемся клиенте */
-	String tmp = "Client connected: ";
-		   tmp.concat(client->getRemoteIp().toString().c_str());
-		   tmp.concat(".\n");
-	Serial.print(tmp);
+	if(UART) {
+		String tmp = "Client connected: ";
+			   tmp.concat(client->getRemoteIp().toString().c_str());
+			   tmp.concat(".\n");
+		Serial.print(tmp);
+	}
 }
 bool clientReceive (TcpClient& client, char *data, int size)
 {
 	/* метод обработки полученных команд */
 	String r_data = data;
+	String tmp;
 
 	/* отключение software watchdog timer перед долгой операцией */
 	system_soft_wdt_stop();
@@ -204,24 +211,20 @@ bool clientReceive (TcpClient& client, char *data, int size)
 	else if(r_data.indexOf("\r") != -1)
 		r_data.replace("\r", "");
 
-	String tmp = "Data received (";
-		   tmp.concat(size);
-		   tmp.concat(" bytes from ");
-		   tmp.concat(client.getRemoteIp().toString().c_str());
-		   tmp.concat("): \"");
-		   tmp.concat(r_data);
-		   tmp.concat("\".\n");
-	Serial.print(tmp);
+	if(UART) {
+		tmp = "Data received (";
+		tmp.concat(size);
+		tmp.concat(" bytes from ");
+		tmp.concat(client.getRemoteIp().toString().c_str());
+		tmp.concat("): \"");
+		tmp.concat(r_data);
+		tmp.concat("\".\n");
+		Serial.print(tmp);
+	}
 
 	if(r_data.compareTo("status") == 0)
 	{
 		bool loadStatus = digitalRead(LCP_PIN);
-		Serial.print("Status request. ");
-		printTemp(temp);
-		if(loadStatus)
-			Serial.print(" Load is ON!\n");
-		else
-			Serial.print(" Load is OFF!\n");
 
 		char tmpChar[7];
 		dtostrf(temp, 1, 2, tmpChar);
@@ -235,6 +238,15 @@ bool clientReceive (TcpClient& client, char *data, int size)
 		else
 			tmp = "load=off\n";
 		client.sendString(tmp, false);
+
+		if(UART) {
+			Serial.print("Status request. ");
+				printTemp(temp);
+			if(loadStatus)
+				Serial.print(" Load is ON!\n");
+			else
+				Serial.print(" Load is OFF!\n");
+		}
 	}
 	else if(r_data.indexOf("max_temp=") != -1)
 	{
@@ -243,10 +255,12 @@ bool clientReceive (TcpClient& client, char *data, int size)
 		set_max_temp = (byte) r_data.toInt();
 		client.sendString(tmp, false);
 
-		tmp = "Maximum temp is set to ";
-		tmp.concat(set_max_temp);
-		tmp.concat("C.\n");
-		Serial.print(tmp);
+		if(UART) {
+			tmp = "Maximum temp is set to ";
+			tmp.concat(set_max_temp);
+			tmp.concat("C.\n");
+			Serial.print(tmp);
+		}
 	}
 	else
 	{
@@ -261,22 +275,26 @@ bool clientReceive (TcpClient& client, char *data, int size)
 void clientDisconnected(TcpClient& client, bool succesfull)
 {
 	/* вывод информации об отключившемся клиенте */
-	String tmp = "Client disconnected: ";
-		   tmp.concat(client.getRemoteIp().toString().c_str());
-		   tmp.concat(".\n");
-	Serial.print(tmp);
+	if(UART) {
+		String tmp = "Client disconnected: ";
+			   tmp.concat(client.getRemoteIp().toString().c_str());
+			   tmp.concat(".\n");
+		Serial.print(tmp);
+	}
 }
 
 TcpServer tcpServer(clientConnected, clientReceive, clientDisconnected);
 
 void startTCPServer()
 {
-	tcpServer.listen(SRV_PORT);
-	String tmp = "TCP server started. Address is ";
-	       tmp.concat("10.0.0.1:");
-	       tmp.concat(SRV_PORT);
-	       tmp.concat(".\n");
-	Serial.print(tmp);
+	tcpServer.listen(TCP_SRV_PORT);
+	if(UART) {
+		String tmp = "TCP server started. Address is ";
+			   tmp.concat("10.0.0.1:");
+			   tmp.concat(TCP_SRV_PORT);
+			   tmp.concat(".\n");
+		Serial.print(tmp);
+	}
 }
 
 void init()
@@ -307,4 +325,6 @@ void init()
 
 	procTimer.initializeMs(2000, execute).start();
 	// запуск таймера (основной цикл)
+
+	Serial.println("System initialization completed successfully.");
 }
