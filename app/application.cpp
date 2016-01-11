@@ -12,8 +12,8 @@
 #define TMP_PIN		 2		// 1-Wire шина = GPIO2
 
 /* данные дл€ подключени€ к Wi-Fi сети */
-#define WIFI_SSID	 "Smart Rock"
-#define WIFI_PWD	 "12345678"
+#define AP_WIFI_SSID "Smart Rock"
+#define AP_WIFI_PWD	 "12345678"
 
 /* настройки порта дл€ TCP сервера */
 #define TCP_SRV_PORT 9000
@@ -21,6 +21,17 @@
 /* создание объектов */
 OneWire oneWire(TMP_PIN);
 Timer procTimer;
+
+
+// *** WEB_SERVER_CODE_START
+HttpServer server;
+FTPServer ftp;
+
+int inputs[] = {0, 2}; // Set input GPIO pins here
+Vector<String> namesInput;
+const int countInputs = sizeof(inputs) /  sizeof(inputs[0]);
+// *** WEB_SERVER_CODE_END
+
 
 /* объ€вление глобальных переменных */
 byte addr[8];			// адрес датчика температуры
@@ -174,13 +185,21 @@ void execute()
 void createAP()
 {
 	/* метод настройки режима wi-fi модул€ */
-	WifiStation.enable(false);
+	//WifiStation.enable(false);
+
+
+	// *** WEB_SERVER_CODE_START
+	WifiStation.enable(true);
+	WifiStation.config(WIFI_SSID, WIFI_PWD);
+	// *** WEB_SERVER_CODE_END
+
+
 	WifiAccessPoint.enable(true);
-	WifiAccessPoint.config(WIFI_SSID, WIFI_PWD, AUTH_WPA2_PSK);
+	WifiAccessPoint.config(AP_WIFI_SSID, AP_WIFI_PWD, AUTH_WPA2_PSK);
 	WifiAccessPoint.setIP(IPAddress(10, 0, 0, 1));
 	if(UART) {
 		String tmp = "AP mode enabled. SSID: \"";
-			   tmp.concat(WIFI_SSID);
+			   tmp.concat(AP_WIFI_SSID);
 			   tmp.concat("\".\n");
 		Serial.print(tmp);
 	}
@@ -297,8 +316,111 @@ void startTCPServer()
 	}
 }
 
+
+// *** WEB_SERVER_CODE_START
+void onIndex(HttpRequest &request, HttpResponse &response)
+{
+	TemplateFileStream *tmpl = new TemplateFileStream("index.html");
+	auto &vars = tmpl->variables();
+	//vars["counter"] = String(counter);
+	response.sendTemplate(tmpl); // this template object will be deleted automatically
+}
+
+void onFile(HttpRequest &request, HttpResponse &response)
+{
+	String file = request.getPath();
+	if (file[0] == '/')
+		file = file.substring(1);
+
+	if (file[0] == '.')
+		response.forbidden();
+	else
+	{
+		response.setCache(86400, true); // It's important to use cache for better performance.
+		response.sendFile(file);
+	}
+}
+
+void onAjaxInput(HttpRequest &request, HttpResponse &response)
+{
+	JsonObjectStream* stream = new JsonObjectStream();
+	JsonObject& json = stream->getRoot();
+	json["status"] = (bool)true;
+
+	String stringKey = "StringKey";
+	String stringValue = "StringValue";
+
+	json[stringKey] = stringValue;
+
+    for( int i = 0; i < 11; i++)
+    {
+        char buff[3];
+        itoa(i, buff, 10);
+        String desiredString = "sensor_";
+        desiredString += buff;
+        json[desiredString] = desiredString;
+    }
+
+
+	JsonObject& gpio = json.createNestedObject("gpio");
+	for (int i = 0; i < countInputs; i++)
+		gpio[namesInput[i].c_str()] = digitalRead(inputs[i]);
+
+	response.sendJsonObject(stream);
+}
+
+void onAjaxFrequency(HttpRequest &request, HttpResponse &response)
+{
+	int freq = request.getQueryParameter("value").toInt();
+	System.setCpuFrequency((CpuFrequency)freq);
+
+	JsonObjectStream* stream = new JsonObjectStream();
+	JsonObject& json = stream->getRoot();
+	json["status"] = (bool)true;
+	json["value"] = (int)System.getCpuFrequency();
+
+	response.sendJsonObject(stream);
+}
+
+void startWebServer()
+{
+	server.listen(80);
+	server.addPath("/", onIndex);
+	server.addPath("/ajax/input", onAjaxInput);
+	server.addPath("/ajax/frequency", onAjaxFrequency);
+	server.setDefaultHandler(onFile);
+
+	Serial.println("\r\n=== WEB SERVER STARTED ===");
+	Serial.println(WifiStation.getIP());
+	Serial.println("==============================\r\n");
+}
+
+void startFTP()
+{
+	if (!fileExist("index.html"))
+		fileSetContent("index.html", "<h3>Please connect to FTP and upload files from folder 'web/build' (details in code)</h3>");
+
+	// Start FTP server
+	ftp.listen(21);
+	ftp.addUser("me", "123"); // FTP account
+}
+
+// Will be called when WiFi station was connected to AP
+void connectOk()
+{
+	Serial.println("I'm CONNECTED");
+
+	startFTP();
+	startWebServer();
+}
+// *** WEB_SERVER_CODE_END
+
+
 void init()
 {
+	spiffs_mount();
+	// монтирование файловой системы
+
 	pinMode(LCP_PIN, OUTPUT);
 	// инициализаци€ пина на выход
 
@@ -325,6 +447,18 @@ void init()
 
 	procTimer.initializeMs(2000, execute).start();
 	// запуск таймера (основной цикл)
+
+
+	// *** WEB_SERVER_CODE_START
+	for (int i = 0; i < countInputs; i++)
+	{
+		namesInput.add(String(inputs[i]));
+		pinMode(inputs[i], INPUT);
+	}
+	// Run our method when station was connected to AP
+	WifiStation.waitConnection(connectOk);
+	// *** WEB_SERVER_CODE_END
+
 
 	Serial.println("System initialization completed successfully.");
 }
