@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<title>JSON Test</title>
+		<script src="jquery.js"></script>
+		<script>
+			$(document).ready(function() {
+				$("button").click(function() {
+					$.getJSON("ajax/status", function(data) {
+						var items = [];
+						
+						$.each(data.status, function(key, val) {
+							items.push("<li id='" + key + "'><b>" + key + ":</b> " + val + "</li>");
+						});
+
+						$.each(data.params, function(key, val) {
+							items.push("<li id='" + key + "'><b>" + key + ":</b> " + val + "</li>");
+						});
+						
+						$("<ul/>", {
+							"class": "params-list",
+							html: items.join("")
+						}).appendTo("#content");
+
+						$("<h3/>", {
+							"class": "one-param",
+							html: "Temperature: " + data.status.temp + "&deg;C"
+						}).appendTo("#content");
+					});
+				});
+			});
+		</script>
+	</head>
+	<body>
+		<button>Get JSON!</button>
+	<div id="content"></div>
+	</body>
+</html>

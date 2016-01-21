@@ -11,27 +11,32 @@
 #define LCP_PIN		 0		// нагрузка    = GPIO0
 #define TMP_PIN		 2		// 1-Wire шина = GPIO2
 
-/* данные дл€ подключени€ к Wi-Fi сети */
+/* данные дл€ создани€ точки доступа подключени€ к Wi-Fi сети */
 #define AP_WIFI_SSID "Smart Rock"
 #define AP_WIFI_PWD	 "12345678"
 
-/* настройки порта дл€ TCP сервера */
+/* данные дл€ подключени€ к Wi-Fi сети */
+#define ST_WIFI_SSID ""
+#define ST_WIFI_PWD	 ""
+// если пол€ не заполнены, то данные берутс€ из переменных среды
+
+/* настройки FTP-сервера */
+#define FTP_SRV_NAME ""
+#define FTP_SRV_PASS ""
+#define FTP_SRV_PORT 21
+// если пол€ не заполнены, то данные (логин и пароль) будут совпадать с данныеми дл€ режима точки доступа
+
+/* настройки порта дл€ WEB-сервера */
+#define WEB_SRV_PORT 80
+
+/* настройки порта дл€ TCP-сервера */
 #define TCP_SRV_PORT 9000
 
 /* создание объектов */
 OneWire oneWire(TMP_PIN);
 Timer procTimer;
-
-
-// *** WEB_SERVER_CODE_START
-HttpServer server;
-FTPServer ftp;
-
-int inputs[] = {0, 2}; // Set input GPIO pins here
-Vector<String> namesInput;
-const int countInputs = sizeof(inputs) /  sizeof(inputs[0]);
-// *** WEB_SERVER_CODE_END
-
+HttpServer webServer;
+FTPServer ftpServer;
 
 /* объ€вление глобальных переменных */
 byte addr[8];			// адрес датчика температуры
@@ -182,17 +187,27 @@ void execute()
 		load(Off);
 }
 
-void createAP()
+void wifiInit()
 {
 	/* метод настройки режима wi-fi модул€ */
-	//WifiStation.enable(false);
 
+	String SSID = ST_WIFI_SSID;
+	String PWD	= ST_WIFI_PWD;
 
-	// *** WEB_SERVER_CODE_START
+	/* проверка на наличие измененной конфигурации дл€ режима станции */
+	if((SSID.length() == 0) or (PWD.length() == 0)) {
+		SSID = WIFI_SSID;
+		PWD	 = WIFI_PWD;
+	}
+
 	WifiStation.enable(true);
-	WifiStation.config(WIFI_SSID, WIFI_PWD);
-	// *** WEB_SERVER_CODE_END
-
+	WifiStation.config(SSID, PWD);
+	if(UART) {
+		String tmp = "Client mode enabled. AP SSID: \"";
+			   tmp.concat(SSID);
+			   tmp.concat("\".\n");
+		Serial.print(tmp);
+	}
 
 	WifiAccessPoint.enable(true);
 	WifiAccessPoint.config(AP_WIFI_SSID, AP_WIFI_PWD, AUTH_WPA2_PSK);
@@ -308,67 +323,73 @@ void startTCPServer()
 {
 	tcpServer.listen(TCP_SRV_PORT);
 	if(UART) {
-		String tmp = "TCP server started. Address is ";
-			   tmp.concat("10.0.0.1:");
+		String tmp = "TCP server started on port ";
 			   tmp.concat(TCP_SRV_PORT);
 			   tmp.concat(".\n");
 		Serial.print(tmp);
 	}
 }
-
-
-// *** WEB_SERVER_CODE_START
-void onIndex(HttpRequest &request, HttpResponse &response)
+void startFTPServer()
 {
-	TemplateFileStream *tmpl = new TemplateFileStream("index.html");
-	auto &vars = tmpl->variables();
-	//vars["counter"] = String(counter);
-	response.sendTemplate(tmpl); // this template object will be deleted automatically
-}
+	if(!fileExist("index.html"))
+		fileSetContent("index.html", "<h3>Error 404: Page not found!</h3>");
 
-void onFile(HttpRequest &request, HttpResponse &response)
-{
-	String file = request.getPath();
-	if (file[0] == '/')
-		file = file.substring(1);
+	ftpServer.listen(FTP_SRV_PORT);
 
-	if (file[0] == '.')
-		response.forbidden();
-	else
-	{
-		response.setCache(86400, true); // It's important to use cache for better performance.
-		response.sendFile(file);
+	String NAME = FTP_SRV_NAME;
+	String PASS	= FTP_SRV_PASS;
+
+	/* проверка на наличие измененной конфигурации дл€ FTP-сервера */
+	if(NAME.length() == 0) {
+		NAME = AP_WIFI_SSID;
+		PASS = AP_WIFI_PWD;
+	}
+
+	ftpServer.addUser(NAME, PASS);
+
+	if(UART) {
+		String tmp = "FTP server started on port ";
+			   tmp.concat(FTP_SRV_PORT);
+			   tmp.concat(".\n");
+		Serial.print(tmp);
 	}
 }
 
-void onAjaxInput(HttpRequest &request, HttpResponse &response)
+void onIndex(HttpRequest &request, HttpResponse &response)
 {
+	TemplateFileStream *tmpl = new TemplateFileStream("index.html");
+
+	auto &vars = tmpl->variables();
+	response.sendTemplate(tmpl);
+}
+void onFile(HttpRequest &request, HttpResponse &response)
+{
+	String file = request.getPath();
+
+	if(file[0] == '/')
+		file = file.substring(1);
+
+	if(file[0] == '.')
+		response.forbidden();
+	else
+	{
+		response.setCache(86400, true);
+		response.sendFile(file);
+	}
+}
+void onAjaxStatus(HttpRequest &request, HttpResponse &response) {
 	JsonObjectStream* stream = new JsonObjectStream();
 	JsonObject& json = stream->getRoot();
-	json["status"] = (bool)true;
 
-	String stringKey = "StringKey";
-	String stringValue = "StringValue";
+	JsonObject& status = json.createNestedObject("status");
+	JsonObject& params = json.createNestedObject("params");
 
-	json[stringKey] = stringValue;
-
-    for( int i = 0; i < 11; i++)
-    {
-        char buff[3];
-        itoa(i, buff, 10);
-        String desiredString = "sensor_";
-        desiredString += buff;
-        json[desiredString] = desiredString;
-    }
-
-
-	JsonObject& gpio = json.createNestedObject("gpio");
-	for (int i = 0; i < countInputs; i++)
-		gpio[namesInput[i].c_str()] = digitalRead(inputs[i]);
+	status["heater"] = digitalRead(LCP_PIN);
+	status["temp"] = temp;
+	params["max_temp"] = max_temp;
 
 	response.sendJsonObject(stream);
 }
-
 void onAjaxFrequency(HttpRequest &request, HttpResponse &response)
 {
 	int freq = request.getQueryParameter("value").toInt();
@@ -382,38 +403,21 @@ void onAjaxFrequency(HttpRequest &request, HttpResponse &response)
 	response.sendJsonObject(stream);
 }
 
-void startWebServer()
+void startWEBServer()
 {
-	server.listen(80);
-	server.addPath("/", onIndex);
-	server.addPath("/ajax/input", onAjaxInput);
-	server.addPath("/ajax/frequency", onAjaxFrequency);
-	server.setDefaultHandler(onFile);
+	webServer.listen(WEB_SRV_PORT);
+	webServer.addPath("/", onIndex);
+	webServer.addPath("/ajax/status", onAjaxStatus);
+	webServer.addPath("/ajax/frequency", onAjaxFrequency);
+	webServer.setDefaultHandler(onFile);
 
-	Serial.println("\r\n=== WEB SERVER STARTED ===");
-	Serial.println(WifiStation.getIP());
-	Serial.println("==============================\r\n");
+	if(UART) {
+		String tmp = "WEB server started on port ";
+			   tmp.concat(WEB_SRV_PORT);
+			   tmp.concat(".\n");
+		Serial.print(tmp);
+	}
 }
-
-void startFTP()
-{
-	if (!fileExist("index.html"))
-		fileSetContent("index.html", "<h3>Please connect to FTP and upload files from folder 'web/build' (details in code)</h3>");
-
-	// Start FTP server
-	ftp.listen(21);
-	ftp.addUser("me", "123"); // FTP account
-}
-
-// Will be called when WiFi station was connected to AP
-void connectOk()
-{
-	Serial.println("I'm CONNECTED");
-
-	startFTP();
-	startWebServer();
-}
-// *** WEB_SERVER_CODE_END
 
 
 void init()
@@ -433,11 +437,13 @@ void init()
 	Serial.begin(SERIAL_BAUD_RATE);
 	// инициализаци€ UART, скорость 115200 бод (по-молчанию)
 
-	createAP();
-	// создание и настройка точки доступа
+	wifiInit();
+	// инициализаци€ Wi-Fi
 
 	startTCPServer();
-	// запуск TCP-сервера
+	startFTPServer();
+	startWEBServer();
+	// запуск серверов
 
 	oneWire.begin();
 	// инициализаци€ шины 1-Wire
@@ -447,18 +453,4 @@ void init()
 
 	procTimer.initializeMs(2000, execute).start();
 	// запуск таймера (основной цикл)
-
-
-	// *** WEB_SERVER_CODE_START
-	for (int i = 0; i < countInputs; i++)
-	{
-		namesInput.add(String(inputs[i]));
-		pinMode(inputs[i], INPUT);
-	}
-	// Run our method when station was connected to AP
-	WifiStation.waitConnection(connectOk);
-	// *** WEB_SERVER_CODE_END
-
-
-	Serial.println("System initialization completed successfully.");
 }
