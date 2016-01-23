@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<meta name="description" content="">
+		<meta name="author" content="Symrak">
+		<link rel="icon" href="favicon.ico">
+		<title>Smart Rock</title>
+		<link href="bootstrap.css" rel="stylesheet">
+		<script src="jquery.js"></script>
+	</head>
+	
+	<script>
+		$(document).ready(function () {
+			ToggleReadonly($('input[checked=checked]').val());
+			$('input[name=ap_mode]').on('click', function() {
+				$('input[name=ap_mode]').each(function(e) {
+					$(e).removeAttr('checked');
+				})
+				$(this).attr('checked', 'checked');
+				ToggleReadonly($(this).val());
+			})
+		});
+
+		function ToggleReadonly(value) {
+			if(value == '1') {
+				$('.form-control').each(function() {
+					if ($(this).name.substr(0, 2) == "ap_")
+						$(this).attr('readonly', 'readonly');
+				})
+			}
+			else
+			{
+				$('.form-control').each(function(){
+					if ($(this).name.substr(0, 2) == "ap_")
+						$(this).removeAttr('readonly');
+				})
+			}
+		}
+	</script>	
+	
+	<body>
+		<div class="container">
+			<div class="header">
+				<nav>
+					<ul class="nav nav-pills pull-right">
+						<li role="presentation"><a href="/">Status</a></li>
+						<li role="presentation" class="active"><a href="config">Settings</a></li>
+						<li role="presentation"><a href="about">About</a></li>
+					</ul>
+				</nav>
+				<h3 class="text-muted">Smart Rock</h3>
+			</div>
+			<div class="jumbotron">
+				<h1>Settings Page</h1>
+				<p class="lead">Changing device configuration<p>
+			</div>
+			<div id="warnings">
+				<!-- Div for messages output -->
+				<div class="alert alert-warning" role="alert">Changes in network configuration will be applied after reboot</div>
+			</div>
+			<div class="row">
+				<form method="post" action="">
+					<fieldset>
+						<div class="col-sm-4">
+							<legend>Heater</legend>
+							<div class="col-md-offset-2">
+								<div class="form-group">
+									<label>Max. temperature, &deg;C</label>
+									<input class="form-control" style="width: 250px" type="text" name="max_temp" value="{max_temp}">
+								</div>									
+							</div>
+						</div>
+						<div class="col-sm-4">
+							<legend>Access point</legend>
+							<div class="col-md-offset-2">
+								<div class="form-group">
+									<label>Enable Wi-Fi Access point</label>
+									<div class="checkbox">
+										<label>
+											<input type="radio" value="1" name="ap_mode" {true} > Yes
+										</label>
+										<label>
+											<input type="radio" value="0" name="ap_mode" {false} > No
+										</label>
+									</div>
+								</div>
+								<div class="form-group">
+									<label>Access point SSID</label>
+									<input class="form-control" style="width: 250px" type="text" name="ap_ssid" value="{ap_ssid}">
+								</div>
+								<div class="form-group">
+									<label>Access point password</label>
+									<input class="form-control" style="width: 250px" type="password" name="ap_psw" value="{ap_psw}">
+								</div>
+							</div>
+						</div>
+						<div class="col-sm-4">
+							<legend>Client AP</legend>
+							<div class="col-md-offset-2">
+								<div class="form-group">
+									<label>Client AP SSID</label>
+									<input class="form-control" style="width: 250px" type="text" name="st_ssid" value="{st_ssid}">
+								</div>
+								<div class="form-group">
+									<label>Client AP password</label>
+									<input class="form-control" style="width: 250px" type="password" name="st_psw" value="{st_psw}">
+								</div>
+							</div>
+						</div>							
+					</fieldset>
+					<p>&nbsp;</p>
+					<center>
+						<input type="submit" class="btn btn-success">
+					</center>
+				</form>
+			</div>			
+			<p>&nbsp;</p>
+			<footer class="footer">
+				<center>
+					<p>&copy; Smart Rock, 2015-2016</p>
+				</center>
+			</footer>
+		</div>
+	</body>
+</html>

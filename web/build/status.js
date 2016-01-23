@@ -47,11 +47,11 @@ $(document).ready(function() {
 						break;
 					case "ap_ssid":
 						if (ap_mode)
-							document.getElementById("ap_status").innerHTML = '<p style="margin-left: 7%">AP SSID: <span id="' + key + '" class="label label-default">' + val + '</span><p>';
+							document.getElementById("ap_status").innerHTML = '<p>AP SSID: <span id="' + key + '" class="label label-default">' + val + '</span><p>';
 						break;
 					case "ap_ip":
 						if (ap_mode)
-							document.getElementById("ap_status").innerHTML += '<p style="margin-left: 7%">AP IP: <span id="' + key +'" class="label label-default">' + val + '</span><p';
+							document.getElementById("ap_status").innerHTML += '<p>AP IP: <span id="' + key + '" class="label label-default">' + val + '</span><p>';
 						break;								
 					default:
 						document.getElementById(key).innerHTML = val;

@@ -1,7 +1,7 @@
 #include <user_config.h>
+#include <settings.h>
 #include <SmingCore/SmingCore.h>
 #include <Libraries/OneWire/OneWire.h>
-
 
 /* определение специальных значений */
 #define On			 true
@@ -41,22 +41,19 @@
 #define UART_DEBUG	 Off
 #define UART_SPEED	 115200
 
-
 /* создание объектов */
 OneWire oneWire(TMP_PIN);
 Timer procTimer;
 HttpServer webServer;
 FTPServer ftpServer;
 
-
 /* объ€вление глобальных переменных */
 byte addr[8];				// адрес датчика температуры
 byte type_s;				// тип датчика температуры
 byte sensor_error = false;	// флаг ошибки (датчик)
-byte max_temp = 30;			// максимальна€ температура
+byte max_temp = 0;			// максимальна€ температура
 byte set_max_temp = 0;		// полученна€ максимальна€ температура
 float temp = 0.0;			// переменна€ дл€ хранени€ температуры
-
 
 void load(bool state)
 {
@@ -374,8 +371,8 @@ void startTCPServer()
 }
 void startFTPServer()
 {
-	if(!fileExist("index.html"))
-		fileSetContent("index.html", "<h3>Error 404: Page not found!</h3>");
+	if(!fileExist("status.html"))
+		fileSetContent("status.html", "404 Not Found");
 
 	ftpServer.listen(FTP_SRV_PORT);
 
@@ -405,6 +402,45 @@ void onStatus(HttpRequest &request, HttpResponse &response)
 	auto &vars = tmpl->variables();
 	response.sendTemplate(tmpl);
 }
+void onConfig(HttpRequest &request, HttpResponse &response)
+{
+	if (request.getRequestMethod() == RequestMethod::POST)
+	{
+		Settings.max_temp = (byte)request.getPostParameter("max_temp").toInt();
+		set_max_temp = Settings.max_temp;
+
+		Settings.ap_mode = request.getPostParameter("ap_mode") == "1";
+		Settings.ap_ssid = request.getPostParameter("ap_ssid");
+		Settings.ap_psw = request.getPostParameter("ap_psw");
+
+		Settings.st_ssid = request.getPostParameter("st_ssid");
+		Settings.st_psw = request.getPostParameter("st_psw");
+
+		Settings.save();
+	}
+
+	TemplateFileStream *tmpl = new TemplateFileStream("config.html");
+	auto &vars = tmpl->variables();
+
+	vars["max_temp"] = max_temp;
+
+	vars["true"] = AP_WIFI ? "checked='checked'" : "";
+	vars["false"] = !AP_WIFI ? "checked='checked'" : "";
+	vars["ap_ssid"] = AP_WIFI_SSID;
+	vars["ap_psw"] = AP_WIFI_PWD;
+
+	vars["st_ssid"] = ST_WIFI_SSID;
+	vars["st_psw"] = ST_WIFI_PWD;
+
+	response.sendTemplate(tmpl);
+}
+void onAbout(HttpRequest &request, HttpResponse &response)
+{
+	TemplateFileStream *tmpl = new TemplateFileStream("about.html");
+
+	auto &vars = tmpl->variables();
+	response.sendTemplate(tmpl);
+}
 void onFile(HttpRequest &request, HttpResponse &response)
 {
 	String file = request.getPath();
@@ -420,7 +456,8 @@ void onFile(HttpRequest &request, HttpResponse &response)
 		response.sendFile(file);
 	}
 }
-void onAjaxStatus(HttpRequest &request, HttpResponse &response) {
+void onAjaxStatus(HttpRequest &request, HttpResponse &response)
+{
 	JsonObjectStream* stream = new JsonObjectStream();
 	JsonObject& json = stream->getRoot();
 
@@ -436,25 +473,14 @@ void onAjaxStatus(HttpRequest &request, HttpResponse &response) {
 
 	response.sendJsonObject(stream);
 }
-void onAjaxFrequency(HttpRequest &request, HttpResponse &response)
-{
-	int freq = request.getQueryParameter("value").toInt();
-	System.setCpuFrequency((CpuFrequency)freq);
-
-	JsonObjectStream* stream = new JsonObjectStream();
-	JsonObject& json = stream->getRoot();
-	json["status"] = (bool)true;
-	json["value"] = (int)System.getCpuFrequency();
-
-	response.sendJsonObject(stream);
-}
 
 void startWEBServer()
 {
 	webServer.listen(WEB_SRV_PORT);
 	webServer.addPath("/", onStatus);
+	webServer.addPath("/config", onConfig);
+	webServer.addPath("/about", onAbout);
 	webServer.addPath("/ajax/status", onAjaxStatus);
-	webServer.addPath("/ajax/config", onAjaxFrequency);
 	webServer.setDefaultHandler(onFile);
 
 	if(UART_MSG) {
@@ -465,6 +491,13 @@ void startWEBServer()
 	}
 }
 
+void startServers()
+{
+	/* метод дл€ запуска серверов */
+	startTCPServer();
+	startFTPServer();
+	startWEBServer();
+}
 
 void init()
 {
@@ -480,13 +513,11 @@ void init()
 	uartInit();
 	// инициализаци€ UART
 
+	Settings.load();
+	// загрузка настроек из файла
+
 	wifiInit();
 	// инициализаци€ Wi-Fi
-
-	startTCPServer();
-	startFTPServer();
-	startWEBServer();
-	// запуск серверов
 
 	oneWire.begin();
 	// инициализаци€ шины 1-Wire
@@ -496,4 +527,7 @@ void init()
 
 	procTimer.initializeMs(2000, execute).start();
 	// запуск таймера (основной цикл)
+
+	System.onReady(startServers);
+	// запуск серверов при полной готовности системы
 }
