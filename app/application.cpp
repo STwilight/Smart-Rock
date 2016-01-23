@@ -11,20 +11,23 @@
 #define LCP_PIN		 0		// нагрузка    = GPIO0
 #define TMP_PIN		 2		// 1-Wire шина = GPIO2
 
-/* данные для создания точки доступа подключения к Wi-Fi сети */
+/* настройки для создания точки доступа Wi-Fi */
 #define AP_WIFI_SSID "Smart Rock"
 #define AP_WIFI_PWD	 "12345678"
+#define AP_WIFI		 Off
 
-/* данные для подключения к Wi-Fi сети */
+/* настройки для подключения к Wi-Fi сети */
+/* если поля не заполнены, то данные берутся из переменных IDE */
 #define ST_WIFI_SSID ""
 #define ST_WIFI_PWD	 ""
-// если поля не заполнены, то данные берутся из переменных среды
+#define ST_WIFI		 On
 
 /* настройки FTP-сервера */
+/* если поля логина и пароля не заполнены, то данные (логин и пароль)
+ * будут совпадать с данныеми для режима точки доступа */
 #define FTP_SRV_NAME ""
 #define FTP_SRV_PASS ""
 #define FTP_SRV_PORT 21
-// если поля не заполнены, то данные (логин и пароль) будут совпадать с данныеми для режима точки доступа
 
 /* настройки порта для WEB-сервера */
 #define WEB_SRV_PORT 80
@@ -32,20 +35,28 @@
 /* настройки порта для TCP-сервера */
 #define TCP_SRV_PORT 9000
 
+/* настройка вывода информации в консоль */
+#define UART_ENABLE	 Off
+#define UART_MSG	 Off
+#define UART_DEBUG	 Off
+#define UART_SPEED	 115200
+
+
 /* создание объектов */
 OneWire oneWire(TMP_PIN);
 Timer procTimer;
 HttpServer webServer;
 FTPServer ftpServer;
 
+
 /* объявление глобальных переменных */
-byte addr[8];			// адрес датчика температуры
-byte type_s;			// тип датчика температуры
-byte error = false;		// флаг ошибки (датчик)
-byte max_temp = 30;		// максимальная температура
-byte set_max_temp = 0;	// полученная максимальная температура
-float temp = 0.0;		// переменная для хранения температуры
-bool UART = false;		// разрешение вывода информации в консоль
+byte addr[8];				// адрес датчика температуры
+byte type_s;				// тип датчика температуры
+byte sensor_error = false;	// флаг ошибки (датчик)
+byte max_temp = 30;			// максимальная температура
+byte set_max_temp = 0;		// полученная максимальная температура
+float temp = 0.0;			// переменная для хранения температуры
+
 
 void load(bool state)
 {
@@ -55,6 +66,9 @@ void load(bool state)
 void searchSensor()
 {
 	/* метод поиска датчика на шине 1-Wire */
+	/* счетчик попыток чтения адреса датчика */
+	byte scan_attempt = 0;
+
 	/* метка для возврата в случае, если ROM датчика принят неверно */
 	rescan:
 
@@ -64,46 +78,60 @@ void searchSensor()
 	/* поиск устройств на шине 1-Wire */
 	while(!oneWire.search(addr))
 	{
-		Serial.print("No sensors found!\n");
+		if(scan_attempt >= 10) {
+			sensor_error = true;
+			if(UART_ENABLE)
+				Serial.print("Sensor not found!\n");
+			break;
+		}
+		if(UART_ENABLE)
+			Serial.print("No sensors found!\n");
 		oneWire.reset_search();
-		delay(500);
-		/* сброс software watchdog timer */
+		scan_attempt++;
 		WDT.alive();
+		delay(500);
 	}
 
 	/* проверка правильности приема адреса датчика */
 	if(OneWire::crc8(addr, 7) != addr[7])
 	{
-		if(UART)
+		if(UART_ENABLE)
 			Serial.print("Sensor's ROM CRC is not valid!\n");
-		goto rescan;
+		if(!sensor_error) {
+			scan_attempt = 0;
+			goto rescan;
+		}
 	}
 	else
 	{
-		/* определение типа датчика и его вывод */
-		if(UART) {
+		if(!sensor_error)
+		{
+			/* определение типа датчика и его вывод */
 			switch (addr[0])
 			{
 				case 0x10:
-					Serial.print("Sensor is DS18S20 or DS1820.\n");
+					if(UART_ENABLE)
+						Serial.print("Sensor is DS18S20 or DS1820.\n");
 					type_s = 1;
 					break;
 				case 0x28:
-					Serial.print("Sensor is DS18B20.\n");
+					if(UART_ENABLE)
+						Serial.print("Sensor is DS18B20.\n");
 					type_s = 0;
 					break;
 				case 0x22:
-					Serial.print("Sensor is DS1822.\n");
+					if(UART_ENABLE)
+						Serial.print("Sensor is DS1822.\n");
 					type_s = 0;
 					break;
 				default:
-					Serial.print("Device is not a DS18x20 family device.\n");
-					error = true;
+					if(UART_ENABLE)
+						Serial.print("Device is not a DS18x20 family device.\n");
 					break;
 			}
-			if(!error)
-			{
-				/* вывод уникального адреса датчика */
+
+			/* вывод уникального адреса датчика */
+			if(UART_ENABLE) {
 				Serial.print("Sensor's ROM is:");
 				for(byte i = 0; i < 8; i++)
 				{
@@ -122,9 +150,9 @@ float getTemp()
 	float temp = 0;
 	byte data[12];
 
-	if(!error)
+	if(!sensor_error)
 	{
-		/* отправка комаеды запускв преобразования (паразитное питание) */
+		/* отправка команды запускв преобразования (паразитное питание) */
 		oneWire.reset();
 		oneWire.select(addr);
 		oneWire.write(0x44, 1);
@@ -181,16 +209,24 @@ void execute()
 	if(max_temp != set_max_temp)
 		max_temp = set_max_temp;
 
-	if(temp < max_temp)
+	if((temp < max_temp) & !sensor_error)
 		load(On);
 	else
 		load(Off);
 }
 
+void uartInit()
+{
+	/* метод настройки UART модуля */
+	Serial.systemDebugOutput(UART_DEBUG);
+
+	if(UART_ENABLE) {
+		Serial.begin(UART_SPEED);
+	}
+}
 void wifiInit()
 {
-	/* метод настройки режима wi-fi модуля */
-
+	/* метод настройки режима Wi-Fi модуля */
 	String SSID = ST_WIFI_SSID;
 	String PWD	= ST_WIFI_PWD;
 
@@ -200,30 +236,35 @@ void wifiInit()
 		PWD	 = WIFI_PWD;
 	}
 
-	WifiStation.enable(true);
-	WifiStation.config(SSID, PWD);
-	if(UART) {
-		String tmp = "Client mode enabled. AP SSID: \"";
-			   tmp.concat(SSID);
-			   tmp.concat("\".\n");
-		Serial.print(tmp);
+	/* настройка  */
+	WifiStation.enable(ST_WIFI);
+	if(ST_WIFI) {
+		WifiStation.config(SSID, PWD);
+		if(UART_MSG) {
+			String tmp = "Client mode enabled. AP SSID: \"";
+				   tmp.concat(SSID);
+				   tmp.concat("\".\n");
+			Serial.print(tmp);
+		}
 	}
 
-	WifiAccessPoint.enable(true);
-	WifiAccessPoint.config(AP_WIFI_SSID, AP_WIFI_PWD, AUTH_WPA2_PSK);
-	WifiAccessPoint.setIP(IPAddress(10, 0, 0, 1));
-	if(UART) {
-		String tmp = "AP mode enabled. SSID: \"";
-			   tmp.concat(AP_WIFI_SSID);
-			   tmp.concat("\".\n");
-		Serial.print(tmp);
+	WifiAccessPoint.enable(AP_WIFI);
+	if(AP_WIFI) {
+		WifiAccessPoint.config(AP_WIFI_SSID, AP_WIFI_PWD, AUTH_WPA2_PSK);
+		WifiAccessPoint.setIP(IPAddress(10, 0, 0, 1));
+		if(UART_MSG) {
+			String tmp = "AP mode enabled. SSID: \"";
+				   tmp.concat(AP_WIFI_SSID);
+				   tmp.concat("\".\n");
+			Serial.print(tmp);
+		}
 	}
 }
 
 void clientConnected (TcpClient* client)
 {
 	/* вывод информации о подключившемся клиенте */
-	if(UART) {
+	if(UART_MSG) {
 		String tmp = "Client connected: ";
 			   tmp.concat(client->getRemoteIp().toString().c_str());
 			   tmp.concat(".\n");
@@ -237,7 +278,8 @@ bool clientReceive (TcpClient& client, char *data, int size)
 	String tmp;
 
 	/* отключение software watchdog timer перед долгой операцией */
-	system_soft_wdt_stop();
+	//system_soft_wdt_stop();
+	WDT.enable(false);
 
 	r_data.toLowerCase();
 	if(r_data.indexOf("\n") != -1)
@@ -245,7 +287,7 @@ bool clientReceive (TcpClient& client, char *data, int size)
 	else if(r_data.indexOf("\r") != -1)
 		r_data.replace("\r", "");
 
-	if(UART) {
+	if(UART_MSG) {
 		tmp = "Data received (";
 		tmp.concat(size);
 		tmp.concat(" bytes from ");
@@ -273,7 +315,7 @@ bool clientReceive (TcpClient& client, char *data, int size)
 			tmp = "load=off\n";
 		client.sendString(tmp, false);
 
-		if(UART) {
+		if(UART_MSG) {
 			Serial.print("Status request. ");
 				printTemp(temp);
 			if(loadStatus)
@@ -289,7 +331,7 @@ bool clientReceive (TcpClient& client, char *data, int size)
 		set_max_temp = (byte) r_data.toInt();
 		client.sendString(tmp, false);
 
-		if(UART) {
+		if(UART_MSG) {
 			tmp = "Maximum temp is set to ";
 			tmp.concat(set_max_temp);
 			tmp.concat("C.\n");
@@ -302,14 +344,15 @@ bool clientReceive (TcpClient& client, char *data, int size)
 	}
 
 	/* сброс software watchdog timer */
-	system_soft_wdt_restart();
+	//system_soft_wdt_restart();
+	WDT.alive();
 
 	return true;
 }
 void clientDisconnected(TcpClient& client, bool succesfull)
 {
 	/* вывод информации об отключившемся клиенте */
-	if(UART) {
+	if(UART_MSG) {
 		String tmp = "Client disconnected: ";
 			   tmp.concat(client.getRemoteIp().toString().c_str());
 			   tmp.concat(".\n");
@@ -322,7 +365,7 @@ TcpServer tcpServer(clientConnected, clientReceive, clientDisconnected);
 void startTCPServer()
 {
 	tcpServer.listen(TCP_SRV_PORT);
-	if(UART) {
+	if(UART_MSG) {
 		String tmp = "TCP server started on port ";
 			   tmp.concat(TCP_SRV_PORT);
 			   tmp.concat(".\n");
@@ -347,7 +390,7 @@ void startFTPServer()
 
 	ftpServer.addUser(NAME, PASS);
 
-	if(UART) {
+	if(UART_MSG) {
 		String tmp = "FTP server started on port ";
 			   tmp.concat(FTP_SRV_PORT);
 			   tmp.concat(".\n");
@@ -355,9 +398,9 @@ void startFTPServer()
 	}
 }
 
-void onIndex(HttpRequest &request, HttpResponse &response)
+void onStatus(HttpRequest &request, HttpResponse &response)
 {
-	TemplateFileStream *tmpl = new TemplateFileStream("index.html");
+	TemplateFileStream *tmpl = new TemplateFileStream("status.html");
 
 	auto &vars = tmpl->variables();
 	response.sendTemplate(tmpl);
@@ -381,12 +424,15 @@ void onAjaxStatus(HttpRequest &request, HttpResponse &response) {
 	JsonObjectStream* stream = new JsonObjectStream();
 	JsonObject& json = stream->getRoot();
 
-	JsonObject& status = json.createNestedObject("status");
-	JsonObject& params = json.createNestedObject("params");
-
-	status["heater"] = digitalRead(LCP_PIN);
-	status["temp"] = temp;
-	params["max_temp"] = max_temp;
+	json["sens_err"] = (bool)sensor_error;
+	json["heater"] = (bool)digitalRead(LCP_PIN);
+	json["temp"] = (float)temp;
+	json["max_temp"] = (byte)max_temp;
+	json["ap_mode"] = (bool)AP_WIFI;
+	json["ap_ssid"] = AP_WIFI_SSID;
+	json["ap_ip"] = WifiAccessPoint.getIP().toString();
+	json["st_ssid"] = WifiStation.getSSID();
+	json["st_ip"] = WifiStation.getIP().toString();
 
 	response.sendJsonObject(stream);
 }
@@ -406,12 +452,12 @@ void onAjaxFrequency(HttpRequest &request, HttpResponse &response)
 void startWEBServer()
 {
 	webServer.listen(WEB_SRV_PORT);
-	webServer.addPath("/", onIndex);
+	webServer.addPath("/", onStatus);
 	webServer.addPath("/ajax/status", onAjaxStatus);
-	webServer.addPath("/ajax/frequency", onAjaxFrequency);
+	webServer.addPath("/ajax/config", onAjaxFrequency);
 	webServer.setDefaultHandler(onFile);
 
-	if(UART) {
+	if(UART_MSG) {
 		String tmp = "WEB server started on port ";
 			   tmp.concat(WEB_SRV_PORT);
 			   tmp.concat(".\n");
@@ -431,11 +477,8 @@ void init()
 	load(Off);
 	// отключение нагрузки
 
-	Serial.systemDebugOutput(false);
-	// запрет выдачи отладочных данных в UART
-
-	Serial.begin(SERIAL_BAUD_RATE);
-	// инициализация UART, скорость 115200 бод (по-молчанию)
+	uartInit();
+	// инициализация UART
 
 	wifiInit();
 	// инициализация Wi-Fi
