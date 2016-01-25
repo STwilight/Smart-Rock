@@ -10,37 +10,8 @@
 		<title>Smart Rock</title>
 		<link href="bootstrap.css" rel="stylesheet">
 		<script src="jquery.js"></script>
+		<script src="config.js"></script>
 	</head>
-	
-	<script>
-		$(document).ready(function () {
-			ToggleReadonly($('input[checked=checked]').val());
-			$('input[name=ap_mode]').on('click', function() {
-				$('input[name=ap_mode]').each(function(e) {
-					$(e).removeAttr('checked');
-				})
-				$(this).attr('checked', 'checked');
-				ToggleReadonly($(this).val());
-			})
-		});
-
-		function ToggleReadonly(value) {
-			if(value == '1') {
-				$('.form-control').each(function() {
-					if ($(this).name.substr(0, 2) == "ap_")
-						$(this).attr('readonly', 'readonly');
-				})
-			}
-			else
-			{
-				$('.form-control').each(function(){
-					if ($(this).name.substr(0, 2) == "ap_")
-						$(this).removeAttr('readonly');
-				})
-			}
-		}
-	</script>	
-	
 	<body>
 		<div class="container">
 			<div class="header">
@@ -59,7 +30,7 @@
 			</div>
 			<div id="warnings">
 				<!-- Div for messages output -->
-				<div class="alert alert-warning" role="alert">Changes in network configuration will be applied after reboot</div>
+					<div class="alert alert-warning" role="alert">Any changes in Access point configuration applies with reboot!</div>
 			</div>
 			<div class="row">
 				<form method="post" action="">

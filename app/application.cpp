@@ -12,21 +12,21 @@
 #define TMP_PIN		 2		// 1-Wire шина = GPIO2
 
 /* настройки для создания точки доступа Wi-Fi */
-#define AP_WIFI_SSID "Smart Rock"
-#define AP_WIFI_PWD	 "12345678"
-#define AP_WIFI		 Off
+String ap_wifi_ssid  = "Smart Rock";
+String ap_wifi_pwd   = "12345678";
+bool   ap_wifi		 = Off;
 
 /* настройки для подключения к Wi-Fi сети */
 /* если поля не заполнены, то данные берутся из переменных IDE */
-#define ST_WIFI_SSID ""
-#define ST_WIFI_PWD	 ""
-#define ST_WIFI		 On
+String st_wifi_ssid = "";
+String st_wifi_pwd  = "";
+bool   st_wifi		= On;
 
 /* настройки FTP-сервера */
 /* если поля логина и пароля не заполнены, то данные (логин и пароль)
  * будут совпадать с данныеми для режима точки доступа */
-#define FTP_SRV_NAME ""
-#define FTP_SRV_PASS ""
+#define FTP_SRV_NAME "Smart Rock"
+#define FTP_SRV_PASS "12345678"
 #define FTP_SRV_PORT 21
 
 /* настройки порта для WEB-сервера */
@@ -224,36 +224,68 @@ void uartInit()
 void wifiInit()
 {
 	/* метод настройки режима Wi-Fi модуля */
-	String SSID = ST_WIFI_SSID;
-	String PWD	= ST_WIFI_PWD;
-
 	/* проверка на наличие измененной конфигурации для режима станции */
-	if((SSID.length() == 0) or (PWD.length() == 0)) {
-		SSID = WIFI_SSID;
-		PWD	 = WIFI_PWD;
+	if((st_wifi_ssid.length() == 0) or (st_wifi_pwd.length() == 0)) {
+		st_wifi_ssid = WIFI_SSID;
+		st_wifi_pwd	 = WIFI_PWD;
 	}
 
 	/* настройка  */
-	WifiStation.enable(ST_WIFI);
-	if(ST_WIFI) {
-		WifiStation.config(SSID, PWD);
+	WifiStation.enable(st_wifi);
+	if(st_wifi) {
+		WifiStation.config(st_wifi_ssid, st_wifi_pwd);
 		if(UART_MSG) {
-			String tmp = "Client mode enabled. AP SSID: \"";
-				   tmp.concat(SSID);
+			String tmp = "Client mode enabled. SSID: \"";
+				   tmp.concat(st_wifi_ssid);
 				   tmp.concat("\".\n");
 			Serial.print(tmp);
 		}
 	}
 
-	WifiAccessPoint.enable(AP_WIFI);
-	if(AP_WIFI) {
-		WifiAccessPoint.config(AP_WIFI_SSID, AP_WIFI_PWD, AUTH_WPA2_PSK);
+	WifiAccessPoint.enable(ap_wifi);
+	if(ap_wifi) {
+		WifiAccessPoint.config(ap_wifi_ssid, ap_wifi_pwd, AUTH_WPA2_PSK);
 		WifiAccessPoint.setIP(IPAddress(10, 0, 0, 1));
 		if(UART_MSG) {
 			String tmp = "AP mode enabled. SSID: \"";
-				   tmp.concat(AP_WIFI_SSID);
+				   tmp.concat(ap_wifi_ssid);
 				   tmp.concat("\".\n");
 			Serial.print(tmp);
+		}
+	}
+}
+void wifiReInit()
+{
+	/* метод перенастройки режима Wi-Fi модуля */
+	Settings.load();
+
+	if(Settings.exist()) {
+		if((ap_wifi != Settings.ap_mode) or (ap_wifi_ssid != Settings.ap_ssid) or (ap_wifi_pwd != Settings.ap_psw)) {
+			/*
+				ap_wifi = Settings.ap_mode;
+				ap_wifi_ssid = Settings.ap_ssid;
+				ap_wifi_pwd = Settings.ap_psw;
+				WDT.enable(false);
+				WifiAccessPoint.enable(ap_wifi);
+				if(ap_wifi) {
+					WifiAccessPoint.config(ap_wifi_ssid, ap_wifi_pwd, AUTH_WPA2_PSK);
+					WifiAccessPoint.setIP(IPAddress(10, 0, 0, 1));
+				}
+				WDT.alive();
+			*/
+			System.restart();
+			/* IP адрес адекватно назначается лишь в случае конфигурации после запуска.
+			 * Перезагрузка – временное решение, пока не исправят данный баг.
+			 */
+		}
+
+		if((st_wifi_ssid != Settings.st_ssid) or (st_wifi_pwd != Settings.st_psw)) {
+			st_wifi_ssid = Settings.st_ssid;
+			st_wifi_pwd = Settings.st_psw;
+			WDT.enable(false);
+			WifiStation.disconnect();
+			WifiStation.config(Settings.st_ssid, Settings.st_psw);
+			WDT.alive();
 		}
 	}
 }
@@ -381,8 +413,8 @@ void startFTPServer()
 
 	/* проверка на наличие измененной конфигурации для FTP-сервера */
 	if(NAME.length() == 0) {
-		NAME = AP_WIFI_SSID;
-		PASS = AP_WIFI_PWD;
+		NAME = ap_wifi_ssid;
+		PASS = ap_wifi_pwd;
 	}
 
 	ftpServer.addUser(NAME, PASS);
@@ -417,20 +449,22 @@ void onConfig(HttpRequest &request, HttpResponse &response)
 		Settings.st_psw = request.getPostParameter("st_psw");
 
 		Settings.save();
+
+		wifiReInit();
 	}
 
 	TemplateFileStream *tmpl = new TemplateFileStream("config.html");
 	auto &vars = tmpl->variables();
 
-	vars["max_temp"] = max_temp;
+	vars["max_temp"] = set_max_temp;
 
-	vars["true"] = AP_WIFI ? "checked='checked'" : "";
-	vars["false"] = !AP_WIFI ? "checked='checked'" : "";
-	vars["ap_ssid"] = AP_WIFI_SSID;
-	vars["ap_psw"] = AP_WIFI_PWD;
+	vars["true"] = ap_wifi ? "checked='checked'" : "";
+	vars["false"] = !ap_wifi ? "checked='checked'" : "";
+	vars["ap_ssid"] = ap_wifi_ssid;
+	vars["ap_psw"] = ap_wifi_pwd;
 
-	vars["st_ssid"] = ST_WIFI_SSID;
-	vars["st_psw"] = ST_WIFI_PWD;
+	vars["st_ssid"] = st_wifi_ssid;
+	vars["st_psw"] = st_wifi_pwd;
 
 	response.sendTemplate(tmpl);
 }
@@ -465,8 +499,8 @@ void onAjaxStatus(HttpRequest &request, HttpResponse &response)
 	json["heater"] = (bool)digitalRead(LCP_PIN);
 	json["temp"] = (float)temp;
 	json["max_temp"] = (byte)max_temp;
-	json["ap_mode"] = (bool)AP_WIFI;
-	json["ap_ssid"] = AP_WIFI_SSID;
+	json["ap_mode"] = (bool)ap_wifi;
+	json["ap_ssid"] = ap_wifi_ssid;
 	json["ap_ip"] = WifiAccessPoint.getIP().toString();
 	json["st_ssid"] = WifiStation.getSSID();
 	json["st_ip"] = WifiStation.getIP().toString();
@@ -499,6 +533,22 @@ void startServers()
 	startWEBServer();
 }
 
+void settingsLoad()
+{
+	Settings.load();
+
+	if(Settings.exist()) {
+		set_max_temp = Settings.max_temp;
+
+		ap_wifi		 = Settings.ap_mode;
+		ap_wifi_ssid = Settings.ap_ssid;
+		ap_wifi_pwd	 = Settings.ap_psw;
+
+		st_wifi_ssid = Settings.st_ssid;
+		st_wifi_pwd	 = Settings.st_psw;
+	}
+}
+
 void init()
 {
 	spiffs_mount();
@@ -513,8 +563,8 @@ void init()
 	uartInit();
 	// инициализация UART
 
-	Settings.load();
-	// загрузка настроек из файла
+	settingsLoad();
+	// загрузка и применение конфигурации системы
 
 	wifiInit();
 	// инициализация Wi-Fi
