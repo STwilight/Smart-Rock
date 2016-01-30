@@ -3,6 +3,10 @@
 #include <SmingCore/SmingCore.h>
 #include <Libraries/OneWire/OneWire.h>
 
+
+/* версия программного обеспечения модуля */
+#define FIRMWARE	 "1.0 Alpha"
+
 /* определение специальных значений */
 #define On			 true
 #define Off			 false
@@ -11,10 +15,15 @@
 #define LCP_PIN		 0		// нагрузка    = GPIO0
 #define TMP_PIN		 2		// 1-Wire шина = GPIO2
 
+/* настройки таймеров отсчета времени */
+uint64_t uptime	   = 0;		// время работы системы (в миллисекундах)
+uint64_t heater_on = 0;		// время работы обогревателя (в миллисекундах)
+#define PERIOD		 1000	// период обновления данных (в миллисекундах)
+
 /* настройки для создания точки доступа Wi-Fi */
 String ap_wifi_ssid  = "Smart Rock";
 String ap_wifi_pwd   = "12345678";
-bool   ap_wifi		 = Off;
+bool   ap_wifi		 = On;
 
 /* настройки для подключения к Wi-Fi сети */
 /* если поля не заполнены, то данные берутся из переменных IDE */
@@ -43,7 +52,7 @@ bool   st_wifi		= On;
 
 /* создание объектов */
 OneWire oneWire(TMP_PIN);
-Timer procTimer;
+Timer executeTimer, timeCounter, autoSaver;
 HttpServer webServer;
 FTPServer ftpServer;
 
@@ -53,13 +62,15 @@ byte type_s;				// тип датчика температуры
 byte sensor_error = false;	// флаг ошибки (датчик)
 byte max_temp = 0;			// максимальная температура
 byte set_max_temp = 0;		// полученная максимальная температура
-float temp = 0.0;			// переменная для хранения температуры
+float temp = 0.0;			// переменная для хранения значения измеренной температуры
+bool heater_status = false;	// переменная для хранения состояния обогревателя (включен/выключен)
 
 void load(bool state)
 {
 	/* метод управления нагрузкой */
 	digitalWrite(LCP_PIN, state);
 }
+
 void searchSensor()
 {
 	/* метод поиска датчика на шине 1-Wire */
@@ -138,6 +149,21 @@ void searchSensor()
 				/* вывод отступа */
 				Serial.println();
 			}
+
+			/* смена разрешения датчика */
+			/* 12 бит (750 мс,   0.0625): RES = 0x7F
+			 * 11 бит (375 мс,   0.125):  RES = 0x5F
+			 * 10 бит (187.5 мс, 0.25):   RES = 0x3F
+			 *  9 бит (93.75 мс, 0.5):    RES = 0x1F */
+		    WDT.enable(false);
+			oneWire.reset();
+		    oneWire.select(addr);
+		    oneWire.write(0x4E);
+		    oneWire.write(0x00);
+		    oneWire.write(0x00);
+		    oneWire.write(0x5F);
+		    oneWire.reset();
+		    WDT.alive();
 		}
 	}
 }
@@ -155,7 +181,8 @@ float getTemp()
 		oneWire.write(0x44, 1);
 
 		/* пауза для выполнения датчиком измерений */
-		delay(1000);
+		WDT.alive();
+		delay(450);
 
 		/* отправка команды чтения температуры датчика */
 		oneWire.reset();
@@ -198,9 +225,19 @@ void printTemp(float temperature)
 		   tmp.concat("C.");
 	Serial.print(tmp);
 }
+
+void timeCount()
+{
+	/* метод обновления значений счетчиков времени работы системы и нагревателя */
+	uptime += PERIOD;
+
+	heater_status = digitalRead(LCP_PIN);
+	if(heater_status)
+		heater_on += PERIOD;
+}
 void execute()
 {
-	/* основной метод, выполняющийся по таймеру */
+	/* метод-исполнитель, выполняющийся по таймеру */
 	temp = getTemp();
 
 	if(max_temp != set_max_temp)
@@ -210,6 +247,94 @@ void execute()
 		load(On);
 	else
 		load(Off);
+
+	timeCount();
+}
+void autoSave()
+{
+	/* метод для автоматического периодического сохранения данных */
+	Settings.heater_on = heater_on;
+	Settings.save();
+}
+
+String convertTime(uint64_t time_ms, bool include_ms)
+{
+	uint64_t time = time_ms;
+
+	String days;
+	String hours;
+	String minutes;
+	String seconds;
+	String miliseconds;
+
+	String result;
+	char buffer[20];
+
+	if(include_ms) {
+		sprintf(buffer, "%03u", time%1000);
+		miliseconds = buffer;
+	}
+
+	time /= 1000;
+	sprintf(buffer, "%02u", time%60);
+	seconds = buffer;
+
+	time /= 60;
+	sprintf(buffer, "%02u", time%60);
+	minutes = buffer;
+
+	time /= 60;
+	sprintf(buffer, "%02u", time%24);
+	hours = buffer;
+
+	sprintf(buffer, "%u", time/24);
+	days = buffer;
+
+	if(!days.equals("0"))
+		result = days + " day(s), ";
+	result += hours + ":" + minutes + ":" + seconds;
+	if(include_ms)
+		result += "." + miliseconds;
+
+	return result;
+}
+String convertMAC(String macAddress)
+{
+	String result = macAddress;
+	result.toUpperCase();
+
+	char macChar[macAddress.length() + 1];
+	result.toCharArray(macChar, macAddress.length() + 1);
+
+	result = "";
+	byte size = sizeof(macChar) - 1;
+	for(int i=0; i<size; i++) {
+		result += macChar[i];
+		if((i%2 != 0) & (i != size-1))
+			result += ":";
+	}
+
+	return result;
+}
+String convertSN(String macAddress)
+{
+	String tmp;
+	//long result;
+
+	char macChar[macAddress.length() + 1];
+	macAddress.toCharArray(macChar, macAddress.length() + 1);
+
+	byte size = sizeof(macChar) - 1;
+	for(int i=6; i<size; i++)
+		tmp += macChar[i];
+
+	//sscanf(tmp.c_str(), "%x", &result);
+	//return result;
+
+	/* необходимо использовать конвертацию из String в uint32_t
+	 * посредством использования недоступной сейчас в Sming функции sscanf() */
+
+	return tmp;
 }
 
 void uartInit()
@@ -329,7 +454,7 @@ bool clientReceive (TcpClient& client, char *data, int size)
 
 	if(r_data.compareTo("status") == 0)
 	{
-		bool loadStatus = digitalRead(LCP_PIN);
+		bool loadStatus = heater_status;
 
 		char tmpChar[7];
 		dtostrf(temp, 1, 2, tmpChar);
@@ -473,6 +598,15 @@ void onAbout(HttpRequest &request, HttpResponse &response)
 	TemplateFileStream *tmpl = new TemplateFileStream("about.html");
 
 	auto &vars = tmpl->variables();
+
+	String ap_mac = WifiAccessPoint.getMAC();
+
+	vars["dev_sn"] = convertSN(ap_mac);
+	vars["dev_fw"] = FIRMWARE;
+	vars["uptime"] = convertTime(uptime, false);
+	vars["ap_mac"] = convertMAC(ap_mac);
+	vars["st_mac"] = convertMAC(WifiStation.getMAC());
+
 	response.sendTemplate(tmpl);
 }
 void onFile(HttpRequest &request, HttpResponse &response)
@@ -496,7 +630,8 @@ void onAjaxStatus(HttpRequest &request, HttpResponse &response)
 	JsonObject& json = stream->getRoot();
 
 	json["sens_err"] = (bool)sensor_error;
-	json["heater"] = (bool)digitalRead(LCP_PIN);
+	json["heater"] = (bool)heater_status;
+	json["heater_on"] = convertTime(heater_on, false);
 	json["temp"] = (float)temp;
 	json["max_temp"] = (byte)max_temp;
 	json["ap_mode"] = (bool)ap_wifi;
@@ -546,6 +681,8 @@ void settingsLoad()
 
 		st_wifi_ssid = Settings.st_ssid;
 		st_wifi_pwd	 = Settings.st_psw;
+
+		heater_on	 = Settings.heater_on;
 	}
 }
 
@@ -560,11 +697,14 @@ void init()
 	load(Off);
 	// отключение нагрузки
 
-	uartInit();
-	// инициализация UART
+	System.setCpuFrequency(eCF_160MHz);
+	// изменение рабочей частоты процессора на 160 МГц
 
 	settingsLoad();
 	// загрузка и применение конфигурации системы
+
+	uartInit();
+	// инициализация UART
 
 	wifiInit();
 	// инициализация Wi-Fi
@@ -575,8 +715,11 @@ void init()
 	searchSensor();
 	// запуск процедуры поиска датчика
 
-	procTimer.initializeMs(2000, execute).start();
-	// запуск таймера (основной цикл)
+	executeTimer.initializeMs(PERIOD, execute).start();
+	// запуск таймера-исполнителя
+
+	autoSaver.initializeMs(60000, autoSave).start();
+	// запуск таймера (автоматическое сохранение данных раз в 1 минуту)
 
 	System.onReady(startServers);
 	// запуск серверов при полной готовности системы

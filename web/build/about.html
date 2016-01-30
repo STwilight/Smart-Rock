@@ -6,7 +6,7 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<meta name="description" content="">
 		<meta name="author" content="Symrak">
-		<link rel="icon" href="favicon.ico">
+		<link rel="shortcut icon" type="image/png" href="favicon.png"/>
 		<title>Smart Rock</title>
 		<link href="bootstrap.css" rel="stylesheet">
 		<script src="jquery.js"></script>
@@ -25,13 +25,27 @@
 			</div>
 			<div class="jumbotron">
 				<h1>About Smart Rock</h1>
-				<p class="lead">Information about Smart Rock device and its authors<p>
+				<p class="lead">Information about Smart Rock device<p>
 			</div>
-			<div class="alert alert-info" role="alert">
-				<p>
-					This device was created by two crazy engineers-researchers.<br>
-					Main functions are heater smart monitoring and management.
-				</p>
+			<div id="warnings">
+				<!-- Div for messages output -->
+			</div>
+			<div class="row marketing">
+				<div class="col-lg-6">
+					<h3>Device:</h3>
+					<h4 style="margin-left: 7%">
+						<p>Device S/N: <span id="dev_sn" class="label label-default">{dev_sn}</span><p>
+						<p>Device FW: <span id="dev_fw" class="label label-default">{dev_fw}</span><p>
+						<p>Device Uptime: <span id="uptime" class="label label-default">{uptime}</span><p>
+					</h4>
+				</div>
+				<div class="col-lg-6">
+					<h3>Network:</h3>
+					<h4 style="margin-left: 7%">
+						<p>Access Point MAC: <span id="ap_mac" class="label label-default">{ap_mac}</span><p>
+						<p>Client AP MAC: <span id="st_mac" class="label label-default">{st_mac}</span><p>
+					</h4>
+				</div>				
 			</div>
 			<p>&nbsp;</p>
 			<footer class="footer">
