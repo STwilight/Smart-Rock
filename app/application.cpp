@@ -398,10 +398,14 @@ void wifiReInit()
 				}
 				WDT.alive();
 			*/
-			System.restart();
+
 			/* IP адрес адекватно назначается лишь в случае конфигурации после запуска.
-			 * Перезагрузка – временное решение, пока не исправят данный баг.
-			 */
+			 * Временная мера – перезагрузка системы. */
+
+			executeTimer.stop();
+			autoSaver.stop();
+			spiffs_unmount();
+			System.restart();
 		}
 
 		if((st_wifi_ssid != Settings.st_ssid) or (st_wifi_pwd != Settings.st_psw)) {
