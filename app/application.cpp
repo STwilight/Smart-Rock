@@ -5,31 +5,35 @@
 
 
 /* версия программного обеспечения модуля */
-#define FIRMWARE	 "1.0 Alpha"
+#define FIRMWARE	 "1.0 Beta"
 
 /* определение специальных значений */
 #define On			 true
 #define Off			 false
 
-/* определение ножек для подключения периферии */
+/* определение выводов для подключения периферии */
 #define LCP_PIN		 0		// нагрузка    = GPIO0
 #define TMP_PIN		 2		// 1-Wire шина = GPIO2
 
-/* настройки таймеров отсчета времени */
-uint64_t uptime	   = 0;		// время работы системы (в миллисекундах)
-uint64_t heater_on = 0;		// время работы обогревателя (в миллисекундах)
-#define PERIOD		 1000	// период обновления данных (в миллисекундах)
+/* переменные для отсчета времени */
+uint32_t uptime	   = 0;		// время работы системы (в секундах)
+uint32_t heater_on = 0;		// время работы обогревателя (в секундах)
 
-/* настройки для создания точки доступа Wi-Fi */
+/* настройки по-умолчанию для режима точки доступа Wi-Fi */
 String ap_wifi_ssid  = "Smart Rock";
+String ap_wifi_def	 = "Smart Rock [Unconfigured]";
 String ap_wifi_pwd   = "12345678";
-bool   ap_wifi		 = On;
+bool   ap_wifi		 = Off;
 
-/* настройки для подключения к Wi-Fi сети */
-/* если поля не заполнены, то данные берутся из переменных IDE */
+/* настройки по-умолчанию для режима клиента Wi-Fi сети */
+/* если поля не заполнены, то данные берутся из переменных IDE (WIFI_SSID, WIFI_PWD)*/
 String st_wifi_ssid = "";
 String st_wifi_pwd  = "";
 bool   st_wifi		= On;
+bool   st_wifi_err  = false;
+
+/* настройки WEB-сервера */
+#define WEB_SRV_PORT 80
 
 /* настройки FTP-сервера */
 /* если поля логина и пароля не заполнены, то данные (логин и пароль)
@@ -37,12 +41,11 @@ bool   st_wifi		= On;
 #define FTP_SRV_NAME "Smart Rock"
 #define FTP_SRV_PASS "12345678"
 #define FTP_SRV_PORT 21
+#define FTP_SRV		 On
 
-/* настройки порта для WEB-сервера */
-#define WEB_SRV_PORT 80
-
-/* настройки порта для TCP-сервера */
+/* настройки TCP-сервера */
 #define TCP_SRV_PORT 9000
+#define TCP_SRV		 Off
 
 /* настройка вывода информации в консоль */
 #define UART_ENABLE	 Off
@@ -50,9 +53,9 @@ bool   st_wifi		= On;
 #define UART_DEBUG	 Off
 #define UART_SPEED	 115200
 
-/* создание объектов */
+/* объявление и создание объектов */
 OneWire oneWire(TMP_PIN);
-Timer executeTimer, timeCounter, autoSaver;
+Timer executeTimer, autoSaver;
 HttpServer webServer;
 FTPServer ftpServer;
 
@@ -64,10 +67,12 @@ byte max_temp = 0;			// максимальная температура
 byte set_max_temp = 0;		// полученная максимальная температура
 float temp = 0.0;			// переменная для хранения значения измеренной температуры
 bool heater_status = false;	// переменная для хранения состояния обогревателя (включен/выключен)
+String ap_mac, st_mac;		// переменные для хранения MAC-адресов Wi-Fi модуля
+String module_sn;			// переменная для хранения серийного номера;
 
 void load(bool state)
 {
-	/* метод управления нагрузкой */
+	/* метод управления состоянием нагрузки (обогреватель) */
 	digitalWrite(LCP_PIN, state);
 }
 
@@ -114,7 +119,7 @@ void searchSensor()
 	{
 		if(!sensor_error)
 		{
-			/* определение типа датчика и его вывод */
+			/* определение типа датчика и его вывод в UART */
 			switch (addr[0])
 			{
 				case 0x10:
@@ -138,7 +143,7 @@ void searchSensor()
 					break;
 			}
 
-			/* вывод уникального адреса датчика */
+			/* вывод уникального адреса датчика в UART */
 			if(UART_ENABLE) {
 				Serial.print("Sensor's ROM is:");
 				for(byte i = 0; i < 8; i++)
@@ -146,7 +151,6 @@ void searchSensor()
 					Serial.write(' ');
 					Serial.print(addr[i], HEX);
 				}
-				/* вывод отступа */
 				Serial.println();
 			}
 
@@ -175,7 +179,7 @@ float getTemp()
 
 	if(!sensor_error)
 	{
-		/* отправка команды запускв преобразования (паразитное питание) */
+		/* отправка команды запуска преобразования (паразитное питание) */
 		oneWire.reset();
 		oneWire.select(addr);
 		oneWire.write(0x44, 1);
@@ -184,12 +188,12 @@ float getTemp()
 		WDT.alive();
 		delay(450);
 
-		/* отправка команды чтения температуры датчика */
+		/* отправка команды чтения температуры с датчика */
 		oneWire.reset();
 		oneWire.select(addr);
 		oneWire.write(0xBE);
 
-		/* чтение температуры */
+		/* чтение данных о температуре */
 		for (byte i = 0; i < 9; i++)
 			data[i] = oneWire.read();
 
@@ -197,7 +201,6 @@ float getTemp()
 		int16_t raw = (data[1] << 8) | data[0];
 		if(type_s)
 		{
-			// разрешение в 9 бит по-умолчанию
 			raw = raw << 3;
 			if(data[7] == 0x10)
 				raw = (raw & 0xFFF0) + 12 - data[6];
@@ -219,63 +222,54 @@ float getTemp()
 }
 void printTemp(float temperature)
 {
-	/* метод вывода темпаратуры в консоль */
+	/* метод вывода темпаратуры в UART */
 	String tmp = "Temperature is ";
 		   tmp.concat(temperature);
 		   tmp.concat("C.");
 	Serial.print(tmp);
 }
 
-void timeCount()
-{
-	/* метод обновления значений счетчиков времени работы системы и нагревателя */
-	uptime += PERIOD;
-
-	heater_status = digitalRead(LCP_PIN);
-	if(heater_status)
-		heater_on += PERIOD;
-}
 void execute()
 {
 	/* метод-исполнитель, выполняющийся по таймеру */
+	/* получение температуры нагрузки (обогреватель) */
 	temp = getTemp();
 
+	/* обновление максимальной температуры */
 	if(max_temp != set_max_temp)
 		max_temp = set_max_temp;
 
+	/* изменение состояния нагрузки (обогреватель) */
 	if((temp < max_temp) & !sensor_error)
 		load(On);
 	else
 		load(Off);
 
-	timeCount();
+	/* обновление значения счетчика времени работы нагрузки (обогреватель) */
+	heater_status = digitalRead(LCP_PIN);
+	if(heater_status)
+		heater_on++;
+
+	/* обновление значения счетчика времени работы системы */
+	uptime++;
 }
 void autoSave()
 {
-	/* метод для автоматического периодического сохранения данных */
+	/* метод для автоматического сохранения данных о времени работы нагрузки (обогреватель) */
 	Settings.heater_on = heater_on;
 	Settings.save();
 }
 
-String convertTime(uint64_t time_ms, bool include_ms)
+String convertTime(uint32_t time)
 {
-	uint64_t time = time_ms;
-
 	String days;
 	String hours;
 	String minutes;
 	String seconds;
-	String miliseconds;
 
 	String result;
 	char buffer[20];
 
-	if(include_ms) {
-		sprintf(buffer, "%03u", time%1000);
-		miliseconds = buffer;
-	}
-
-	time /= 1000;
 	sprintf(buffer, "%02u", time%60);
 	seconds = buffer;
 
@@ -293,8 +287,6 @@ String convertTime(uint64_t time_ms, bool include_ms)
 	if(!days.equals("0"))
 		result = days + " day(s), ";
 	result += hours + ":" + minutes + ":" + seconds;
-	if(include_ms)
-		result += "." + miliseconds;
 
 	return result;
 }
@@ -316,10 +308,29 @@ String convertMAC(String macAddress)
 
 	return result;
 }
+String convertHEX(String hexSN)
+{
+	/* метод конвертации HEX строки вида (1a2b3c) в DEC значение */
+	const char symbols[16] = {'0', '1', '2', '3', '4', '5', '6', '7',
+							  '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+	const byte numbers[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+
+	String hexNumber = hexSN;
+	byte hexLength = hexNumber.length();
+	uint32_t decResult = 0;
+
+	hexNumber.toUpperCase();
+	for(int i=0; i<hexLength; i++)
+		for(int j=0; j<sizeof(symbols); j++) {
+			if(hexNumber.charAt(i) == symbols[j])
+				decResult += numbers[j] << 4*(hexLength-i-1);
+	}
+
+	return String(decResult);
+}
 String convertSN(String macAddress)
 {
 	String tmp;
-	//long result;
 
 	char macChar[macAddress.length() + 1];
 	macAddress.toCharArray(macChar, macAddress.length() + 1);
@@ -328,13 +339,17 @@ String convertSN(String macAddress)
 	for(int i=6; i<size; i++)
 		tmp += macChar[i];
 
-	//sscanf(tmp.c_str(), "%x", &result);
-	//return result;
+	/* необходимо использовать конвертацию из String в uint32_t для преобразования HEX > DEC
+	 * посредством использования недоступной сейчас в Sming функции sscanf()
+	 *
+	 * временное решение – самописный конвертер HEX-кода в DEC String значение
+	 * функция для вызова: (String) convertHEX(String hexSN)
+	 *
+	 * правильное решение:
+	 * 		sscanf(tmp.c_str(), "%x", &result);
+	 * 		return (long) result; */
 
-	/* необходимо использовать конвертацию из String в uint32_t
-	 * посредством использования недоступной сейчас в Sming функции sscanf() */
-
-	return tmp;
+	return convertHEX(tmp);
 }
 
 void uartInit()
@@ -346,16 +361,46 @@ void uartInit()
 		Serial.begin(UART_SPEED);
 	}
 }
+
+void wifiConnectOK()
+{
+	/* метод, выполняющийся при успешном подключении к Wi-Fi точке доступа */
+	st_wifi_err = false;
+
+	if(WifiAccessPoint.isEnabled() & !ap_wifi)
+		WifiAccessPoint.enable(Off);
+
+	if(UART_MSG) {
+		String tmp = "Successful connection to \"";
+			   tmp.concat(WifiStation.getSSID());
+			   tmp.concat("\". Obtained IP: ");
+			   tmp.concat(WifiStation.getIP().toString());
+		Serial.print(tmp);
+	}
+}
+void wifiConnectFail()
+{
+	/* метод, выполняющийся при отсутствии подключения к Wi-Fi точке доступа */
+	st_wifi_err = true;
+
+	if(!WifiAccessPoint.isEnabled()) {
+		WifiAccessPoint.enable(On);
+		WifiAccessPoint.config(ap_wifi_def, "", AUTH_OPEN);
+	}
+
+	if(UART_MSG)
+		Serial.print("Failed to connect to Wi-Fi network!");
+}
 void wifiInit()
 {
 	/* метод настройки режима Wi-Fi модуля */
-	/* проверка на наличие измененной конфигурации для режима станции */
+	/* проверка наличия изменений в конфигурации для режима клиента Wi-Fi сети от значений по-умолчанию */
 	if((st_wifi_ssid.length() == 0) or (st_wifi_pwd.length() == 0)) {
 		st_wifi_ssid = WIFI_SSID;
 		st_wifi_pwd	 = WIFI_PWD;
 	}
 
-	/* настройка  */
+	/* настройка режима клиента */
 	WifiStation.enable(st_wifi);
 	if(st_wifi) {
 		WifiStation.config(st_wifi_ssid, st_wifi_pwd);
@@ -367,10 +412,11 @@ void wifiInit()
 		}
 	}
 
+	/* настройка режима точки доступа */
 	WifiAccessPoint.enable(ap_wifi);
 	if(ap_wifi) {
-		WifiAccessPoint.config(ap_wifi_ssid, ap_wifi_pwd, AUTH_WPA2_PSK);
 		WifiAccessPoint.setIP(IPAddress(10, 0, 0, 1));
+		WifiAccessPoint.config(ap_wifi_ssid, ap_wifi_pwd, AUTH_WPA2_PSK);
 		if(UART_MSG) {
 			String tmp = "AP mode enabled. SSID: \"";
 				   tmp.concat(ap_wifi_ssid);
@@ -378,36 +424,19 @@ void wifiInit()
 			Serial.print(tmp);
 		}
 	}
+
+	/* ожидание подключения к точке доступа Wi-Fi */
+	WifiStation.waitConnection(wifiConnectOK, 20, wifiConnectFail);
 }
 void wifiReInit()
 {
 	/* метод перенастройки режима Wi-Fi модуля */
+	/* получение сохраненных параметров */
 	Settings.load();
 
+	/* применение параметров */
 	if(Settings.exist()) {
-		if((ap_wifi != Settings.ap_mode) or (ap_wifi_ssid != Settings.ap_ssid) or (ap_wifi_pwd != Settings.ap_psw)) {
-			/*
-				ap_wifi = Settings.ap_mode;
-				ap_wifi_ssid = Settings.ap_ssid;
-				ap_wifi_pwd = Settings.ap_psw;
-				WDT.enable(false);
-				WifiAccessPoint.enable(ap_wifi);
-				if(ap_wifi) {
-					WifiAccessPoint.config(ap_wifi_ssid, ap_wifi_pwd, AUTH_WPA2_PSK);
-					WifiAccessPoint.setIP(IPAddress(10, 0, 0, 1));
-				}
-				WDT.alive();
-			*/
-
-			/* IP адрес адекватно назначается лишь в случае конфигурации после запуска.
-			 * Временная мера – перезагрузка системы. */
-
-			executeTimer.stop();
-			autoSaver.stop();
-			spiffs_unmount();
-			System.restart();
-		}
-
+		/* применение параметров для режима клиента */
 		if((st_wifi_ssid != Settings.st_ssid) or (st_wifi_pwd != Settings.st_psw)) {
 			st_wifi_ssid = Settings.st_ssid;
 			st_wifi_pwd = Settings.st_psw;
@@ -416,12 +445,38 @@ void wifiReInit()
 			WifiStation.config(Settings.st_ssid, Settings.st_psw);
 			WDT.alive();
 		}
+
+		/* применение параметров для режима точки доступа */
+		if((ap_wifi != Settings.ap_mode) or (ap_wifi_ssid != Settings.ap_ssid) or (ap_wifi_pwd != Settings.ap_psw)) {
+			if(ap_wifi == Settings.ap_mode) {
+				if(ap_wifi) {
+					ap_wifi_ssid = Settings.ap_ssid;
+					ap_wifi_pwd = Settings.ap_psw;
+					WDT.enable(false);
+					WifiAccessPoint.config(ap_wifi_ssid, ap_wifi_pwd, AUTH_WPA2_PSK);
+					WDT.alive();
+				}
+			}
+			else {
+				/* Необходимый IP адрес в режиме AP назначается лишь в случае конфигурации при перезапуске системы.
+				 * Временная мера – перезагрузка системы при изменении состояния точки доступа (вкл/выкл). */
+				if(executeTimer.isStarted())
+					executeTimer.stop();
+				if(autoSaver.isStarted())
+					autoSaver.stop();
+				spiffs_unmount();
+				System.restart();
+			}
+		}
+
+		/* ожидание подключения к точке доступа Wi-Fi */
+		WifiStation.waitConnection(wifiConnectOK, 20, wifiConnectFail);
 	}
 }
 
 void clientConnected (TcpClient* client)
 {
-	/* вывод информации о подключившемся клиенте */
+	/* вывод информации в UART о подключившемся к TCP-серверу клиенте */
 	if(UART_MSG) {
 		String tmp = "Client connected: ";
 			   tmp.concat(client->getRemoteIp().toString().c_str());
@@ -431,11 +486,11 @@ void clientConnected (TcpClient* client)
 }
 bool clientReceive (TcpClient& client, char *data, int size)
 {
-	/* метод обработки полученных команд */
+	/* метод обработки полученных TCP-сервером команд */
 	String r_data = data;
 	String tmp;
 
-	/* отключение software watchdog timer перед долгой операцией */
+	/* отключение software watchdog timer перед длительной операцией */
 	//system_soft_wdt_stop();
 	WDT.enable(false);
 
@@ -509,7 +564,7 @@ bool clientReceive (TcpClient& client, char *data, int size)
 }
 void clientDisconnected(TcpClient& client, bool succesfull)
 {
-	/* вывод информации об отключившемся клиенте */
+	/* вывод информации в UART об отключившемся от TCP-сервера клиенте */
 	if(UART_MSG) {
 		String tmp = "Client disconnected: ";
 			   tmp.concat(client.getRemoteIp().toString().c_str());
@@ -522,6 +577,7 @@ TcpServer tcpServer(clientConnected, clientReceive, clientDisconnected);
 
 void startTCPServer()
 {
+	/* метод для запуска TCP-сервера */
 	tcpServer.listen(TCP_SRV_PORT);
 	if(UART_MSG) {
 		String tmp = "TCP server started on port ";
@@ -532,6 +588,7 @@ void startTCPServer()
 }
 void startFTPServer()
 {
+	/* метод для запуска FTP-сервера */
 	if(!fileExist("status.html"))
 		fileSetContent("status.html", "404 Not Found");
 
@@ -558,6 +615,7 @@ void startFTPServer()
 
 void onStatus(HttpRequest &request, HttpResponse &response)
 {
+	/* метод выдачи Status-страницы */
 	TemplateFileStream *tmpl = new TemplateFileStream("status.html");
 
 	auto &vars = tmpl->variables();
@@ -565,6 +623,10 @@ void onStatus(HttpRequest &request, HttpResponse &response)
 }
 void onConfig(HttpRequest &request, HttpResponse &response)
 {
+	/* метод выдачи Config-страницы
+	 * отвечает за выдачу/сохранение настроек модуля через WEB-интерфейс */
+
+	/* сохранение переданных в POST-запросе параметров */
 	if (request.getRequestMethod() == RequestMethod::POST)
 	{
 		Settings.max_temp = (byte)request.getPostParameter("max_temp").toInt();
@@ -577,11 +639,14 @@ void onConfig(HttpRequest &request, HttpResponse &response)
 		Settings.st_ssid = request.getPostParameter("st_ssid");
 		Settings.st_psw = request.getPostParameter("st_psw");
 
+		autoSaver.stop();
 		Settings.save();
+		autoSaver.start(true);
 
 		wifiReInit();
 	}
 
+	/* выдача текущей конфигурации модуля */
 	TemplateFileStream *tmpl = new TemplateFileStream("config.html");
 	auto &vars = tmpl->variables();
 
@@ -599,22 +664,22 @@ void onConfig(HttpRequest &request, HttpResponse &response)
 }
 void onAbout(HttpRequest &request, HttpResponse &response)
 {
+	/* метод выдачи About-страницы */
 	TemplateFileStream *tmpl = new TemplateFileStream("about.html");
 
 	auto &vars = tmpl->variables();
 
-	String ap_mac = WifiAccessPoint.getMAC();
-
-	vars["dev_sn"] = convertSN(ap_mac);
+	vars["dev_sn"] = module_sn;
 	vars["dev_fw"] = FIRMWARE;
-	vars["uptime"] = convertTime(uptime, false);
-	vars["ap_mac"] = convertMAC(ap_mac);
-	vars["st_mac"] = convertMAC(WifiStation.getMAC());
+	vars["uptime"] = convertTime(uptime);
+	vars["ap_mac"] = ap_mac;
+	vars["st_mac"] = st_mac;
 
 	response.sendTemplate(tmpl);
 }
 void onFile(HttpRequest &request, HttpResponse &response)
 {
+	/* метод выдачи файла */
 	String file = request.getPath();
 
 	if(file[0] == '/')
@@ -630,17 +695,24 @@ void onFile(HttpRequest &request, HttpResponse &response)
 }
 void onAjaxStatus(HttpRequest &request, HttpResponse &response)
 {
+	/* метод генерации и выдачи статуса устройства в формате JSON */
 	JsonObjectStream* stream = new JsonObjectStream();
 	JsonObject& json = stream->getRoot();
 
 	json["sens_err"] = (bool)sensor_error;
 	json["heater"] = (bool)heater_status;
-	json["heater_on"] = convertTime(heater_on, false);
+	json["heater_on"] = convertTime(heater_on);
 	json["temp"] = (float)temp;
 	json["max_temp"] = (byte)max_temp;
-	json["ap_mode"] = (bool)ap_wifi;
-	json["ap_ssid"] = ap_wifi_ssid;
+	json["ap_mode"] = (bool)WifiAccessPoint.isEnabled();
+
+	if(st_wifi_err)
+		json["ap_ssid"] = ap_wifi_def;
+	else
+		json["ap_ssid"] = ap_wifi_ssid;
+
 	json["ap_ip"] = WifiAccessPoint.getIP().toString();
+	json["st_err"] = (bool)st_wifi_err;
 	json["st_ssid"] = WifiStation.getSSID();
 	json["st_ip"] = WifiStation.getIP().toString();
 
@@ -649,6 +721,7 @@ void onAjaxStatus(HttpRequest &request, HttpResponse &response)
 
 void startWEBServer()
 {
+	/* метод для запуска WEB-сервера */
 	webServer.listen(WEB_SRV_PORT);
 	webServer.addPath("/", onStatus);
 	webServer.addPath("/config", onConfig);
@@ -667,13 +740,16 @@ void startWEBServer()
 void startServers()
 {
 	/* метод для запуска серверов */
-	startTCPServer();
-	startFTPServer();
+	if(TCP_SRV)
+		startTCPServer();
+	if(FTP_SRV)
+		startFTPServer();
 	startWEBServer();
 }
 
 void settingsLoad()
 {
+	/* метод для загрузки и применения сохраненных параметров */
 	Settings.load();
 
 	if(Settings.exist()) {
@@ -690,6 +766,16 @@ void settingsLoad()
 	}
 }
 
+void valuesInit()
+{
+	/* метод инициализации значений для выдачи (SN, MAC-адреса) */
+	String tmp = WifiAccessPoint.getMAC();
+
+	ap_mac = convertMAC(tmp);
+	st_mac = convertMAC(WifiStation.getMAC());
+	module_sn = convertSN(tmp);
+}
+
 void init()
 {
 	spiffs_mount();
@@ -704,14 +790,17 @@ void init()
 	System.setCpuFrequency(eCF_160MHz);
 	// изменение рабочей частоты процессора на 160 МГц
 
-	settingsLoad();
-	// загрузка и применение конфигурации системы
-
 	uartInit();
 	// инициализация UART
 
+	settingsLoad();
+	// загрузка и применение конфигурации системы
+
 	wifiInit();
 	// инициализация Wi-Fi
+
+	valuesInit();
+	// инициализация значений для выдачи (SN, MAC-адреса)
 
 	oneWire.begin();
 	// инициализация шины 1-Wire
@@ -719,8 +808,8 @@ void init()
 	searchSensor();
 	// запуск процедуры поиска датчика
 
-	executeTimer.initializeMs(PERIOD, execute).start();
-	// запуск таймера-исполнителя
+	executeTimer.initializeMs(1000, execute).start();
+	// запуск таймера-исполнителя (выполняется раз в секунду)
 
 	autoSaver.initializeMs(60000, autoSave).start();
 	// запуск таймера (автоматическое сохранение данных раз в 1 минуту)

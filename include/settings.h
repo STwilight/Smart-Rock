@@ -4,6 +4,8 @@
 
 struct SettingsStorage
 {
+	/* структура для выполнения сохранения и загрузки настроек в/из файла в формате JSON */
+
 	byte max_temp;
 
 	bool ap_mode;
@@ -13,10 +15,11 @@ struct SettingsStorage
 	String st_ssid;
 	String st_psw;
 
-	uint64_t heater_on;
+	uint32_t heater_on;
 
 	void load()
 	{
+		/* загрузка настроек из файла */
 		DynamicJsonBuffer jsonBuffer;
 		if (exist())
 		{
@@ -36,17 +39,25 @@ struct SettingsStorage
 			st_ssid = settings["st_ssid"].asString();
 			st_psw = settings["st_psw"].asString();
 
-			/* JsonObject& statistic = root["statistic"];
-			   sscanf(statistic["heater_on"].asString(), "%u", &heater_on); */
+			JsonObject& statistic = root["statistic"];
 
-			/* необходимо использовать конвертацию из String в uint64_t
-			 * посредством использования недоступной сейчас в Sming функции sscanf() */
+			heater_on = statistic["heater_on"];
+
+			/* необходимо использовать правильную конвертацию из String в uint32_t
+			 * посредством использования недоступной сейчас в Sming функции sscanf()
+			 * с целью увеличения максимально возможного значения времени наработки
+			 * с ~24855 до ~49710 дней (~68 лет против ~136 лет)
+			 *
+			 * временное решение использует стандартную конвертацию String > long int
+			 *
+			 * правильное решение: sscanf(statistic["heater_on"].asString(), "%u", &heater_on); */
 
 			delete[] jsonString;
 		}
 	}
 	void save()
 	{
+		/* сохранение настроек в файл */
 		DynamicJsonBuffer jsonBuffer;
 		JsonObject& root = jsonBuffer.createObject();
 
