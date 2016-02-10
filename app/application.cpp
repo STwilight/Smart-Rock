@@ -20,10 +20,11 @@ uint32_t uptime	   = 0;		// время работы системы (в секундах)
 uint32_t heater_on = 0;		// время работы обогревателя (в секундах)
 
 /* настройки по-умолчанию для режима точки доступа Wi-Fi */
-String ap_wifi_ssid  = "Smart Rock";
-String ap_wifi_def	 = "Smart Rock [Unconfigured]";
-String ap_wifi_pwd   = "12345678";
-bool   ap_wifi		 = Off;
+String ap_wifi_ssid		= "Smart Rock";
+String ap_wifi_pwd		= "12345678";
+bool   ap_wifi			= Off;
+String ap_wifi_def_ssid	= "Smart Rock [Unconfigured]";
+bool   ap_wifi_def  	= false;
 
 /* настройки по-умолчанию для режима клиента Wi-Fi сети */
 /* если поля не заполнены, то данные берутся из переменных IDE (WIFI_SSID, WIFI_PWD)*/
@@ -262,6 +263,7 @@ void autoSave()
 
 String convertTime(uint32_t time)
 {
+	/* функция для конвертации времени из uint_32 значения в секундах в String дни, часы:минуты:секунды */
 	String days;
 	String hours;
 	String minutes;
@@ -292,6 +294,7 @@ String convertTime(uint32_t time)
 }
 String convertMAC(String macAddress)
 {
+	/* функция для конвертации MAC адреса с разделением двоеточием */
 	String result = macAddress;
 	result.toUpperCase();
 
@@ -310,7 +313,7 @@ String convertMAC(String macAddress)
 }
 String convertHEX(String hexSN)
 {
-	/* метод конвертации HEX строки вида (1a2b3c) в DEC значение */
+	/* метод конвертации HEX строки вида "1a2b3c" в DEC значение */
 	const char symbols[16] = {'0', '1', '2', '3', '4', '5', '6', '7',
 							  '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
 	const byte numbers[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
@@ -330,6 +333,7 @@ String convertHEX(String hexSN)
 }
 String convertSN(String macAddress)
 {
+	/* метод конвертации 3 последних байт MAC-адреса в десятичный серийный номер */
 	String tmp;
 
 	char macChar[macAddress.length() + 1];
@@ -367,8 +371,10 @@ void wifiConnectOK()
 	/* метод, выполняющийся при успешном подключении к Wi-Fi точке доступа */
 	st_wifi_err = false;
 
-	if(WifiAccessPoint.isEnabled() & !ap_wifi)
+	if(WifiAccessPoint.isEnabled() & !ap_wifi) {
 		WifiAccessPoint.enable(Off);
+		ap_wifi_def = false;
+	}
 
 	if(UART_MSG) {
 		String tmp = "Successful connection to \"";
@@ -383,9 +389,13 @@ void wifiConnectFail()
 	/* метод, выполняющийся при отсутствии подключения к Wi-Fi точке доступа */
 	st_wifi_err = true;
 
+	if(WifiStation.isEnabled())
+		WifiStation.enable(Off);
+
 	if(!WifiAccessPoint.isEnabled()) {
 		WifiAccessPoint.enable(On);
-		WifiAccessPoint.config(ap_wifi_def, "", AUTH_OPEN);
+		WifiAccessPoint.config(ap_wifi_def_ssid, "", AUTH_OPEN);
+		ap_wifi_def = true;
 	}
 
 	if(UART_MSG)
@@ -441,7 +451,10 @@ void wifiReInit()
 			st_wifi_ssid = Settings.st_ssid;
 			st_wifi_pwd = Settings.st_psw;
 			WDT.enable(false);
-			WifiStation.disconnect();
+			if(!WifiStation.isEnabled())
+				WifiStation.enable(On);
+			if(WifiStation.isConnected())
+				WifiStation.disconnect();
 			WifiStation.config(Settings.st_ssid, Settings.st_psw);
 			WDT.alive();
 		}
@@ -706,8 +719,8 @@ void onAjaxStatus(HttpRequest &request, HttpResponse &response)
 	json["max_temp"] = (byte)max_temp;
 	json["ap_mode"] = (bool)WifiAccessPoint.isEnabled();
 
-	if(st_wifi_err)
-		json["ap_ssid"] = ap_wifi_def;
+	if(ap_wifi_def)
+		json["ap_ssid"] = ap_wifi_def_ssid;
 	else
 		json["ap_ssid"] = ap_wifi_ssid;
 
