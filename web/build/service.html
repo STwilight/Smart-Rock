@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<meta name="description" content="">
+		<meta name="author" content="Symrak">
+		<link rel="shortcut icon" type="image/png" href="favicon.png"/>
+		<title>Smart Rock</title>
+		<link href="bootstrap.css" rel="stylesheet">
+		<script src="jquery.js"></script>
+		<script src="service.js"></script>
+	</head>
+	<body>
+		<div class="container">
+			<div class="header">
+				<nav>
+					<ul class="nav nav-pills pull-right">
+						<li role="presentation"><a href="/">Status</a></li>
+						<li role="presentation"><a href="config">Settings</a></li>
+						<li role="presentation" class="active"><a href="/">Service</a></li>
+						<li role="presentation"><a href="about">About</a></li>
+					</ul>
+				</nav>
+				<h3 class="text-muted">Smart Rock</h3>
+			</div>
+			<div class="jumbotron">
+				<h1>Service Page</h1>
+				<p class="lead">Service information and settings<p>
+			</div>
+			<div id="warnings">
+				<!-- Div for messages output -->
+			</div>
+			<div class="row marketing">
+				<div class="col-lg-6">
+					<h3>Heater:</h3>
+					<h4 style="margin-left: 7%">
+						<p>Heater state: <span id="heater" class="label label-default">N/A</span><p>
+						<p>Heater op. time: <span id="heater_on" class="label label-default">0 s.</span><p>
+						<p>Temperature: <span id="temp" class="label label-default">0&deg;C</span><p>
+						<p>Max. temperature: <span id="max_temp" class="label label-default">0&deg;C</span><p>
+					</h4>
+				</div>
+				<div class="col-lg-6">
+					<h3>System:</h3>
+					<h4 style="margin-left: 7%">
+						<p>Raw VCC ADC value: <span id="adc_val" class="label label-default">0</span><p>
+						<p>VCC value: <span id="vcc_val" class="label label-default">0V</span><p>
+						<p>Min. VCC limit: <span id="vcc_min" class="label label-default">0V</span><p>
+						<p>VCC correction: <span id="vcc_corr" class="label label-default">0mV</span><p>
+						<p>Uptime: <span id="uptime" class="label label-default">N/A</span><p>
+					</h4>
+				</div>
+			</div>
+			<p>&nbsp;</p>
+			<footer class="footer">
+				<center>
+					<p>&copy; Smart Rock, 2015-2016</p>
+				</center>
+			</footer>
+		</div>
+	</body>
+</html>

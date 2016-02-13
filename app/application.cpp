@@ -1,8 +1,15 @@
+
+/* подключение заголовочных файлов Sming */
 #include <user_config.h>
 #include <settings.h>
 #include <SmingCore/SmingCore.h>
 #include <Libraries/OneWire/OneWire.h>
 
+/* подключение внешних заголовочных файлов C */
+extern "C" {
+	#include "user_interface.h"
+	uint16 readvdd33(void);
+}
 
 /* версия программного обеспечения модуля */
 #define FIRMWARE	 "1.0 Beta"
@@ -14,6 +21,10 @@
 /* определение выводов для подключения периферии */
 #define LCP_PIN		 0		// нагрузка    = GPIO0
 #define TMP_PIN		 2		// 1-Wire шина = GPIO2
+
+/* определение параметров питания */
+float vcc_minimal  = 3.0;	// минимально допустимое напряжение питания (в волтах)
+int vcc_correction = -100;  // погрешность измерения напряжения питания (в миливольтах)
 
 /* переменные для отсчета времени */
 uint32_t uptime	   = 0;		// время работы системы (в секундах)
@@ -316,7 +327,6 @@ String convertHEX(String hexSN)
 	/* метод конвертации HEX строки вида "1a2b3c" в DEC значение */
 	const char symbols[16] = {'0', '1', '2', '3', '4', '5', '6', '7',
 							  '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
-	const byte numbers[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 
 	String hexNumber = hexSN;
 	byte hexLength = hexNumber.length();
@@ -326,7 +336,7 @@ String convertHEX(String hexSN)
 	for(int i=0; i<hexLength; i++)
 		for(int j=0; j<sizeof(symbols); j++) {
 			if(hexNumber.charAt(i) == symbols[j])
-				decResult += numbers[j] << 4*(hexLength-i-1);
+				decResult += j << 4*(hexLength-i-1);
 	}
 
 	return String(decResult);
@@ -675,6 +685,14 @@ void onConfig(HttpRequest &request, HttpResponse &response)
 
 	response.sendTemplate(tmpl);
 }
+void onService(HttpRequest &request, HttpResponse &response)
+{
+	/* метод выдачи Service-страницы */
+	TemplateFileStream *tmpl = new TemplateFileStream("service.html");
+
+	auto &vars = tmpl->variables();
+	response.sendTemplate(tmpl);
+}
 void onAbout(HttpRequest &request, HttpResponse &response)
 {
 	/* метод выдачи About-страницы */
@@ -712,9 +730,9 @@ void onAjaxStatus(HttpRequest &request, HttpResponse &response)
 	JsonObjectStream* stream = new JsonObjectStream();
 	JsonObject& json = stream->getRoot();
 
-	json["sens_err"] = (bool)sensor_error;
 	json["heater"] = (bool)heater_status;
 	json["heater_on"] = convertTime(heater_on);
+	json["sens_err"] = (bool)sensor_error;
 	json["temp"] = (float)temp;
 	json["max_temp"] = (byte)max_temp;
 	json["ap_mode"] = (bool)WifiAccessPoint.isEnabled();
@@ -731,6 +749,37 @@ void onAjaxStatus(HttpRequest &request, HttpResponse &response)
 
 	response.sendJsonObject(stream);
 }
+void onAjaxService(HttpRequest &request, HttpResponse &response)
+{
+	/* метод генерации и выдачи статуса устройства для Service-страницы в формате JSON */
+	JsonObjectStream* stream = new JsonObjectStream();
+	JsonObject& json = stream->getRoot();
+
+	uint32_t ADC_Value = 0;
+
+	WDT.enable(false);
+	for(byte i=0; i<100; i++)
+		ADC_Value += readvdd33();
+	WDT.alive();
+
+	ADC_Value /= 100;
+
+	json["adc_val"] = ADC_Value;
+
+	ADC_Value += vcc_correction;
+
+	json["vcc_val"] = (float)(ADC_Value/1000.0);
+	json["vcc_min"] = (float)vcc_minimal;
+	json["vcc_corr"] = vcc_correction;
+	json["heater"] = (bool)heater_status;
+	json["heater_on"] = heater_on;
+	json["sens_err"] = (bool)sensor_error;
+	json["temp"] = (float)temp;
+	json["max_temp"] = (byte)max_temp;
+	json["uptime"] = convertTime(uptime);
+
+	response.sendJsonObject(stream);
+}
 
 void startWEBServer()
 {
@@ -738,8 +787,10 @@ void startWEBServer()
 	webServer.listen(WEB_SRV_PORT);
 	webServer.addPath("/", onStatus);
 	webServer.addPath("/config", onConfig);
+	webServer.addPath("/service", onService);
 	webServer.addPath("/about", onAbout);
 	webServer.addPath("/ajax/status", onAjaxStatus);
+	webServer.addPath("/ajax/service", onAjaxService);
 	webServer.setDefaultHandler(onFile);
 
 	if(UART_MSG) {
